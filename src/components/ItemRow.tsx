@@ -1,10 +1,10 @@
 ﻿import React from 'react';
 import { Box, ListItem, ListItemButton, ListItemText } from '@mui/material';
 
-import type { Item } from '../data/types';
+import type { Node } from '../data/types';
 
 type ItemRowProps = {
-  item: Item;
+  item: Node;
   onOpen: (id: string) => void;
   secondary?: React.ReactNode;
   leftIcon?: React.ReactNode;

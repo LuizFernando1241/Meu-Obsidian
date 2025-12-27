@@ -5,9 +5,14 @@ import { useNavigate } from 'react-router-dom';
 
 import LoadingState from '../components/LoadingState';
 import { useNotifier } from '../components/Notifier';
-import { deleteItem, listItems } from '../data/repo';
-import type { Item, ItemType } from '../data/types';
+import { deleteNode, listItems } from '../data/repo';
+import type { Node, NodeType } from '../data/types';
 import { useDataStore } from '../store/useDataStore';
+
+const TYPE_LABELS: Record<NodeType, string> = {
+  note: 'nota',
+  folder: 'pasta',
+};
 
 export default function DebugPage() {
   const navigate = useNavigate();
@@ -19,7 +24,7 @@ export default function DebugPage() {
     isSeeding: state.isSeeding,
   }));
 
-  const [items, setItems] = React.useState<Item[]>([]);
+  const [items, setItems] = React.useState<Node[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
 
   const loadItems = React.useCallback(async () => {
@@ -41,7 +46,7 @@ export default function DebugPage() {
     }
   }, [isReady, loadItems]);
 
-  const handleCreate = async (type: ItemType) => {
+  const handleCreate = async (type: NodeType) => {
     try {
       await createQuick(type);
       notifier.success('Item criado');
@@ -54,7 +59,7 @@ export default function DebugPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteItem(id);
+      await deleteNode(id);
       notifier.success('Item excluido');
       await loadItems();
     } catch (error) {
@@ -84,14 +89,8 @@ export default function DebugPage() {
           <Button variant="contained" onClick={() => handleCreate('note')} disabled={!isReady}>
             Criar Nota
           </Button>
-          <Button variant="contained" onClick={() => handleCreate('task')} disabled={!isReady}>
-            Criar Tarefa
-          </Button>
-          <Button variant="contained" onClick={() => handleCreate('project')} disabled={!isReady}>
-            Criar Projeto
-          </Button>
-          <Button variant="contained" onClick={() => handleCreate('area')} disabled={!isReady}>
-            Criar Área
+          <Button variant="contained" onClick={() => handleCreate('folder')} disabled={!isReady}>
+            Criar Pasta
           </Button>
           <Button variant="outlined" color="error" onClick={handleWipe} disabled={!isReady}>
             Apagar tudo (wipe)
@@ -123,8 +122,8 @@ export default function DebugPage() {
                 }
               >
                 <ListItemText
-                  primary={item.title || 'Sem título'}
-                  secondary={`${item.type} \u2022 Atualizado ${format(
+                  primary={item.title || 'Sem titulo'}
+                  secondary={`${TYPE_LABELS[item.nodeType]} \u2022 Atualizado ${format(
                     new Date(item.updatedAt),
                     'yyyy-MM-dd HH:mm',
                   )}`}

@@ -1,9 +1,9 @@
-import type { ItemType } from '../data/types';
+import type { NodeType } from '../data/types';
 
 export type GraphNode = {
   id: string;
   label: string;
-  type: ItemType;
+  type: NodeType;
   favorite?: boolean;
 };
 

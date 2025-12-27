@@ -254,7 +254,7 @@ export default function SettingsPage() {
         <CardContent>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              Exporta todos os itens (notas, tarefas, projetos, tags e links).
+              Exporta todos os itens (notas, pastas, tags e links).
             </Typography>
             <Button variant="contained" onClick={handleExport} disabled={isBusy}>
               Exportar JSON

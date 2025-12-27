@@ -1,11 +1,16 @@
-﻿import { endOfDay, startOfDay } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 
 import { extractLinkTargets } from '../app/wikilinks';
-import { computeNextDueDateMs } from '../tasks/recurrence';
 import { db } from './db';
 import { enqueueItemWrite } from './writeQueue';
-import type { Block, Item, ItemType } from './types';
+import type {
+  Block,
+  FolderNode,
+  LegacyItemType,
+  Node,
+  NodeType,
+  NoteNode,
+} from './types';
 
 type ListParams = {
   limit?: number;
@@ -34,44 +39,82 @@ const makeParagraph = (text: string): Block => ({
   text,
 });
 
-const defaultTitleByType: Record<ItemType, string> = {
-  note: 'Nova nota',
-  task: 'Nova tarefa',
-  project: 'Novo projeto',
-  area: 'Nova area',
+const ensureContent = (content?: Block[]) => {
+  if (Array.isArray(content) && content.length > 0) {
+    return content;
+  }
+  return [makeParagraph('')];
 };
 
-export const createItem = async (partial: Partial<Item> & Pick<Item, 'type'>): Promise<Item> => {
+const defaultTitleByType: Record<NodeType, string> = {
+  note: 'Nova nota',
+  folder: 'Nova pasta',
+};
+
+type CreateNoteInput = {
+  title?: string;
+  parentId?: string;
+  content?: Block[];
+  tags?: string[];
+  favorite?: boolean;
+  linksTo?: string[];
+  props?: Record<string, unknown>;
+  legacyType?: LegacyItemType;
+};
+
+type CreateFolderInput = {
+  title?: string;
+  parentId?: string;
+  tags?: string[];
+  favorite?: boolean;
+  linksTo?: string[];
+  props?: Record<string, unknown>;
+  legacyType?: LegacyItemType;
+};
+
+export const createNote = async (partial: CreateNoteInput): Promise<NoteNode> => {
   const now = Date.now();
-  const item: Item = {
+  const note: NoteNode = {
     id: uuidv4(),
-    type: partial.type,
-    title: partial.title ?? defaultTitleByType[partial.type],
-    content: partial.content ?? [makeParagraph('')],
+    nodeType: 'note',
+    title: partial.title ?? defaultTitleByType.note,
+    parentId: partial.parentId,
+    content: ensureContent(partial.content),
     tags: partial.tags ?? [],
     favorite: partial.favorite ?? false,
     linksTo: partial.linksTo ?? [],
-    rev: partial.rev ?? 1,
+    rev: 1,
     createdAt: now,
     updatedAt: now,
-    status: partial.status,
-    dueDate: partial.dueDate,
-    doneAt: partial.doneAt,
-    recurrence: partial.recurrence,
-    projectId: partial.projectId,
-    originItemId: partial.originItemId,
-    originBlockId: partial.originBlockId,
-    originType: partial.originType,
-    nextActionId: partial.nextActionId,
+    props: partial.props,
+    legacyType: partial.legacyType,
   };
 
-  if (item.type === 'task' && !item.status) {
-    item.status = 'todo';
-  }
-
-  await db.items.put(item);
+  await db.items.put(note);
   notifyLocalChange();
-  return item;
+  return note;
+};
+
+export const createFolder = async (partial: CreateFolderInput): Promise<FolderNode> => {
+  const now = Date.now();
+  const folder: FolderNode = {
+    id: uuidv4(),
+    nodeType: 'folder',
+    title: partial.title ?? defaultTitleByType.folder,
+    parentId: partial.parentId,
+    tags: partial.tags ?? [],
+    favorite: partial.favorite ?? false,
+    linksTo: partial.linksTo ?? [],
+    rev: 1,
+    createdAt: now,
+    updatedAt: now,
+    props: partial.props,
+    legacyType: partial.legacyType,
+  };
+
+  await db.items.put(folder);
+  notifyLocalChange();
+  return folder;
 };
 
 type ContentPatch = {
@@ -83,29 +126,28 @@ type ContentPatch = {
 type PropsPatch = {
   tags?: string[];
   favorite?: boolean;
-  status?: Item['status'];
-  dueDate?: number;
-  doneAt?: number;
-  recurrence?: Item['recurrence'];
-  projectId?: string;
-  originItemId?: string;
-  originBlockId?: string;
-  originType?: Item['originType'];
-  nextActionId?: string;
+  parentId?: string;
+  props?: Record<string, unknown>;
+  linksTo?: string[];
 };
+
+type ChecklistBlock = Block & { type: 'checklist' };
 
 const hasOwn = <T extends object>(obj: T, key: keyof T) =>
   Object.prototype.hasOwnProperty.call(obj, key);
 
-export const updateItemContent = async (id: string, patch: ContentPatch): Promise<Item> => {
+export const updateItemContent = async (id: string, patch: ContentPatch): Promise<Node> => {
   const next = await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(id);
       if (!current) {
         throw new Error('Item nao encontrado');
       }
+      if (current.nodeType !== 'note') {
+        throw new Error('Item nao editavel');
+      }
 
-      const update: Partial<Item> = {
+      const update: Partial<NoteNode> = {
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
@@ -120,19 +162,16 @@ export const updateItemContent = async (id: string, patch: ContentPatch): Promis
         update.linksTo = patch.linksTo;
       }
 
-      await db.items.update(id, update);
-      const nextItem = await db.items.get(id);
-      if (!nextItem) {
-        throw new Error('Item nao encontrado');
-      }
-      return nextItem;
+      const nextItem: NoteNode = { ...current, ...update };
+      await db.items.put(nextItem);
+      return nextItem as Node;
     }),
   );
   notifyLocalChange();
-  return next;
+  return next as Node;
 };
 
-export const updateItemProps = async (id: string, patch: PropsPatch): Promise<Item> => {
+export const updateItemProps = async (id: string, patch: PropsPatch): Promise<Node> => {
   const next = await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(id);
@@ -140,7 +179,7 @@ export const updateItemProps = async (id: string, patch: PropsPatch): Promise<It
         throw new Error('Item nao encontrado');
       }
 
-      const update: Partial<Item> = {
+      const update: Partial<Node> = {
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
@@ -151,32 +190,14 @@ export const updateItemProps = async (id: string, patch: PropsPatch): Promise<It
       if (hasOwn(patch, 'favorite') && patch.favorite !== undefined) {
         update.favorite = patch.favorite;
       }
-      if (hasOwn(patch, 'status') && patch.status !== undefined) {
-        update.status = patch.status;
+      if (hasOwn(patch, 'parentId')) {
+        update.parentId = patch.parentId;
       }
-      if (hasOwn(patch, 'dueDate')) {
-        update.dueDate = patch.dueDate;
+      if (hasOwn(patch, 'props') && patch.props !== undefined) {
+        update.props = patch.props;
       }
-      if (hasOwn(patch, 'doneAt')) {
-        update.doneAt = patch.doneAt;
-      }
-      if (hasOwn(patch, 'recurrence')) {
-        update.recurrence = patch.recurrence;
-      }
-      if (hasOwn(patch, 'projectId')) {
-        update.projectId = patch.projectId;
-      }
-      if (hasOwn(patch, 'originItemId')) {
-        update.originItemId = patch.originItemId;
-      }
-      if (hasOwn(patch, 'originBlockId')) {
-        update.originBlockId = patch.originBlockId;
-      }
-      if (hasOwn(patch, 'originType')) {
-        update.originType = patch.originType;
-      }
-      if (hasOwn(patch, 'nextActionId')) {
-        update.nextActionId = patch.nextActionId;
+      if (hasOwn(patch, 'linksTo') && patch.linksTo !== undefined) {
+        update.linksTo = patch.linksTo;
       }
 
       await db.items.update(id, update);
@@ -184,85 +205,108 @@ export const updateItemProps = async (id: string, patch: PropsPatch): Promise<It
       if (!nextItem) {
         throw new Error('Item nao encontrado');
       }
-      return nextItem;
+      return nextItem as Node;
     }),
   );
   notifyLocalChange();
-  return next;
+  return next as Node;
 };
 
-export const setProjectNextAction = async (
-  projectId: string,
-  taskId?: string,
-): Promise<void> => {
-  if (!projectId) {
-    return;
-  }
-  await updateItemProps(projectId, { nextActionId: taskId });
-};
-
-export const completeTask = async (taskId: string): Promise<void> => {
-  await enqueueItemWrite(taskId, async () =>
+export const renameNode = async (id: string, title: string): Promise<Node> => {
+  const next = await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, async () => {
-      const task = await db.items.get(taskId);
-      if (!task || task.type !== 'task') {
-        return;
-      }
-      if (task.status === 'done') {
-        return;
+      const current = await db.items.get(id);
+      if (!current) {
+        throw new Error('Item nao encontrado');
       }
 
-      const now = Date.now();
-      await db.items.update(taskId, {
-        status: 'done',
-        doneAt: now,
-        rev: (task.rev ?? 1) + 1,
-        updatedAt: now,
+      await db.items.update(id, {
+        title,
+        rev: (current.rev ?? 1) + 1,
+        updatedAt: Date.now(),
       });
 
-      if (!task.recurrence) {
-        return;
+      const nextItem = await db.items.get(id);
+      if (!nextItem) {
+        throw new Error('Item nao encontrado');
+      }
+      return nextItem as Node;
+    }),
+  );
+  notifyLocalChange();
+  return next as Node;
+};
+
+export const moveNode = async (id: string, parentId?: string): Promise<Node> =>
+  updateItemProps(id, { parentId });
+
+export const updateChecklistBlock = async (
+  noteId: string,
+  blockId: string,
+  patch: Partial<ChecklistBlock>,
+): Promise<void> => {
+  await enqueueItemWrite(noteId, async () =>
+    db.transaction('rw', db.items, async () => {
+      const current = await db.items.get(noteId);
+      if (!current) {
+        throw new Error('Item nao encontrado');
+      }
+      if (current.nodeType !== 'note') {
+        throw new Error('Item nao editavel');
       }
 
-      const nextDueDate = computeNextDueDateMs(task, now);
-      const nextTask: Item = {
-        id: uuidv4(),
-        type: 'task',
-        title: task.title,
-        content: [makeParagraph('')],
-        tags: Array.isArray(task.tags) ? [...task.tags] : [],
-        favorite: false,
-        linksTo: [],
-        rev: 1,
-        createdAt: now,
-        updatedAt: now,
-        status: 'todo',
-        dueDate: nextDueDate,
-        doneAt: undefined,
-        recurrence: task.recurrence,
-        projectId: task.projectId,
-        originItemId: task.originItemId,
-        originBlockId: task.originBlockId,
-        originType: task.originType,
-      };
+      const content = Array.isArray(current.content) ? current.content : [];
+      const index = content.findIndex((block) => block.id === blockId);
+      if (index === -1) {
+        throw new Error('Checklist nao encontrada');
+      }
+      const target = content[index];
+      if (target.type !== 'checklist') {
+        throw new Error('Bloco nao e checklist');
+      }
 
-      await db.items.put(nextTask);
+      const nextContent = [...content];
+      nextContent[index] = { ...target, ...patch, type: 'checklist' };
+
+      const nextItem: NoteNode = {
+        ...current,
+        content: nextContent,
+        rev: (current.rev ?? 1) + 1,
+        updatedAt: Date.now(),
+      };
+      await db.items.put(nextItem);
     }),
   );
   notifyLocalChange();
 };
 
-export const getItem = async (id: string) => db.items.get(id);
+export const toggleChecklist = async (
+  noteId: string,
+  blockId: string,
+  checked: boolean,
+): Promise<void> =>
+  updateChecklistBlock(noteId, blockId, {
+    checked,
+    doneAt: checked ? Date.now() : null,
+  });
+
+export const setChecklistDue = async (
+  noteId: string,
+  blockId: string,
+  due: string | null,
+): Promise<void> => updateChecklistBlock(noteId, blockId, { due });
+
+export const getItem = async (id: string) => db.items.get(id) as Promise<Node | undefined>;
 
 export const getItemsByIds = async (ids: string[]) => {
   if (ids.length === 0) {
     return [];
   }
   const items = await db.items.bulkGet(ids);
-  return items.filter((entry): entry is Item => Boolean(entry));
+  return items.filter((entry): entry is Node => Boolean(entry));
 };
 
-export const deleteItem = async (id: string) => {
+export const deleteNode = async (id: string) => {
   await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, db.tombstones, async () => {
       const current = await db.items.get(id);
@@ -289,37 +333,18 @@ export const listItems = async (params?: ListParams) => {
   return query.toArray();
 };
 
-const sortByUpdatedDesc = (items: Item[]) => items.sort((a, b) => b.updatedAt - a.updatedAt);
+const sortByUpdatedDesc = (items: Node[]) => items.sort((a, b) => b.updatedAt - a.updatedAt);
 
-export const listByType = async (type: ItemType) => {
-  const items = await db.items.where('type').equals(type).toArray();
+export const listByNodeType = async (nodeType: NodeType) => {
+  const items = await db.items.where('nodeType').equals(nodeType).toArray();
   return sortByUpdatedDesc(items);
 };
 
-const sortProjectTasks = (items: Item[]) =>
-  items.sort((a, b) => {
-    const statusA = a.status ?? 'todo';
-    const statusB = b.status ?? 'todo';
-    const rankA = statusA === 'done' ? 1 : 0;
-    const rankB = statusB === 'done' ? 1 : 0;
-    if (rankA !== rankB) {
-      return rankA - rankB;
-    }
-    const dueA = typeof a.dueDate === 'number' ? a.dueDate : Number.POSITIVE_INFINITY;
-    const dueB = typeof b.dueDate === 'number' ? b.dueDate : Number.POSITIVE_INFINITY;
-    if (dueA !== dueB) {
-      return dueA - dueB;
-    }
-    return b.updatedAt - a.updatedAt;
-  });
-
-export const listTasksByProject = async (projectId: string): Promise<Item[]> => {
-  if (!projectId) {
-    return [];
+export const listChildren = async (parentId?: string) => {
+  if (!parentId) {
+    return db.items.filter((item) => !item.parentId).toArray();
   }
-  const items = await db.items.where('type').equals('task').toArray();
-  const filtered = items.filter((item) => item.projectId === projectId);
-  return sortProjectTasks(filtered);
+  return db.items.where('parentId').equals(parentId).toArray();
 };
 
 export const listFavorites = async () => {
@@ -334,44 +359,7 @@ export const listByTag = async (tag: string) => {
   return sortByUpdatedDesc(items);
 };
 
-const sortByDueDateAsc = (items: Item[]) =>
-  items.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
-
-export const listOpenTasks = async (): Promise<Item[]> => {
-  const items = await db.items.where('type').equals('task').toArray();
-  const openTasks = items.filter((item) => item.status !== 'done');
-  return sortByUpdatedDesc(openTasks);
-};
-
-export const listTasksDueBetween = async (startMs: number, endMs: number): Promise<Item[]> => {
-  const tasks = await listOpenTasks();
-  const filtered = tasks.filter(
-    (item) => typeof item.dueDate === 'number' && item.dueDate >= startMs && item.dueDate <= endMs,
-  );
-  return sortByDueDateAsc(filtered);
-};
-
-export const listOverdueTasks = async (nowMs: number): Promise<Item[]> => {
-  const start = startOfDay(new Date(nowMs)).getTime();
-  const tasks = await listOpenTasks();
-  const filtered = tasks.filter(
-    (item) => typeof item.dueDate === 'number' && item.dueDate < start,
-  );
-  return sortByDueDateAsc(filtered);
-};
-
-export const listTodayTasks = async (nowMs: number): Promise<Item[]> => {
-  const start = startOfDay(new Date(nowMs)).getTime();
-  const end = endOfDay(new Date(nowMs)).getTime();
-  return listTasksDueBetween(start, end);
-};
-
-export const listNoDueDateTasks = async (): Promise<Item[]> => {
-  const tasks = await listOpenTasks();
-  return tasks.filter((item) => !item.dueDate);
-};
-
-export const listBacklinks = async (targetId: string): Promise<Item[]> => {
+export const listBacklinks = async (targetId: string): Promise<Node[]> => {
   if (!targetId) {
     return [];
   }
@@ -379,13 +367,13 @@ export const listBacklinks = async (targetId: string): Promise<Item[]> => {
   return sortByUpdatedDesc(items);
 };
 
-export const listOutgoingLinks = async (item: Item): Promise<Item[]> => {
+export const listOutgoingLinks = async (item: Node): Promise<Node[]> => {
   const ids = item.linksTo ?? [];
   if (ids.length === 0) {
     return [];
   }
   const items = await db.items.bulkGet(ids);
-  return sortByUpdatedDesc(items.filter((entry): entry is Item => Boolean(entry)));
+  return sortByUpdatedDesc(items.filter((entry): entry is Node => Boolean(entry)));
 };
 
 export const countBacklinks = async (targetId: string): Promise<number> => {
@@ -396,54 +384,41 @@ export const countBacklinks = async (targetId: string): Promise<number> => {
 };
 
 export const searchByTitlePrefix = async (query: string, limit = 10) => {
-  const normalized = query.trim();
+  const normalized = query.trim().toLowerCase();
   if (!normalized) {
-    return db.items.orderBy('updatedAt').reverse().limit(limit).toArray();
+    const notes = await db.items.where('nodeType').equals('note').toArray();
+    return notes.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
   }
-  return db.items.where('title').startsWithIgnoreCase(normalized).limit(limit).toArray();
+  const notes = await db.items.where('nodeType').equals('note').toArray();
+  return notes
+    .filter((item) => item.title.toLowerCase().startsWith(normalized))
+    .slice(0, limit);
 };
 
-export const getByTitleExact = async (title: string): Promise<Item | undefined> => {
+export const getByTitleExact = async (title: string): Promise<Node | undefined> => {
   const normalized = title.trim();
   if (!normalized) {
     return undefined;
   }
 
-  let matches: Item[] = [];
-  try {
-    matches = await db.items.where('title').equalsIgnoreCase(normalized).toArray();
-  } catch (error) {
-    const all = await db.items.where('title').equals(normalized).toArray();
-    matches = all.length > 0 ? all : await db.items.toArray();
-  }
-
+  const notes = await db.items.where('nodeType').equals('note').toArray();
   const normalizedLower = normalized.toLowerCase();
-  const filtered = matches.filter((item) => item.title.toLowerCase() === normalizedLower);
-  if (filtered.length === 0) {
+  const matches = notes.filter((item) => item.title.toLowerCase() === normalizedLower);
+  if (matches.length === 0) {
     return undefined;
   }
-
-  return filtered.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  return matches.sort((a, b) => b.updatedAt - a.updatedAt)[0];
 };
 
-export const findByTitleAll = async (title: string): Promise<Item[]> => {
+export const findByTitleAll = async (title: string): Promise<Node[]> => {
   const normalized = title.trim();
   if (!normalized) {
     return [];
   }
 
-  let matches: Item[] = [];
-  try {
-    matches = await db.items.where('title').equalsIgnoreCase(normalized).toArray();
-  } catch (error) {
-    const all = await db.items.toArray();
-    matches = all.filter(
-      (item) => item.title.trim().toLowerCase() === normalized.toLowerCase(),
-    );
-  }
-
+  const notes = await db.items.where('nodeType').equals('note').toArray();
   const normalizedLower = normalized.toLowerCase();
-  return matches.filter((item) => item.title.trim().toLowerCase() === normalizedLower);
+  return notes.filter((item) => item.title.trim().toLowerCase() === normalizedLower);
 };
 
 export const resolveTitleToId = async (
@@ -474,7 +449,7 @@ export const recomputeLinksToFromBlocks = async (blocks: Block[]): Promise<strin
   }
 
   const resolved = new Set<string>(ids.filter(Boolean));
-  const uniqueTitles = Array.from(new Set(titles.map((title) => title.trim()).filter(Boolean)));
+  const uniqueTitles = Array.from(new Set(titles.map((entry) => entry.trim()).filter(Boolean)));
   for (const title of uniqueTitles) {
     const resolvedTitle = await resolveTitleToId(title);
     if (resolvedTitle.status === 'ok') {
@@ -492,5 +467,3 @@ export const wipeAll = async () => {
   });
   notifyLocalChange();
 };
-
-

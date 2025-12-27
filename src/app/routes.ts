@@ -1,13 +1,14 @@
 import type { SvgIconComponent } from '@mui/icons-material';
 import {
-  FolderOpenOutlined,
-  GridViewOutlined,
+  AccessTimeOutlined,
+  CheckBoxOutlined,
+  EventBusyOutlined,
+  FlashOnOutlined,
   HomeOutlined,
   HubOutlined,
   LocalOfferOutlined,
   NoteOutlined,
   SettingsOutlined,
-  TaskAltOutlined,
   TodayOutlined,
 } from '@mui/icons-material';
 
@@ -21,10 +22,23 @@ export type AppRoute = {
 
 export const NAV_ROUTES: AppRoute[] = [
   { key: 'home', label: 'Home', path: '/', icon: HomeOutlined, showInNav: true },
+  { key: 'tasks', label: 'Tarefas', path: '/tasks', icon: CheckBoxOutlined, showInNav: true },
   { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
-  { key: 'tasks', label: 'Tarefas', path: '/tasks', icon: TaskAltOutlined, showInNav: true },
-  { key: 'projects', label: 'Projetos', path: '/projects', icon: FolderOpenOutlined, showInNav: true },
-  { key: 'areas', label: 'Areas', path: '/areas', icon: GridViewOutlined, showInNav: true },
+  { key: 'overdue', label: 'Atrasadas', path: '/overdue', icon: EventBusyOutlined, showInNav: true },
+  {
+    key: 'quick-notes',
+    label: 'Notas rapidas',
+    path: '/quick-notes',
+    icon: FlashOnOutlined,
+    showInNav: true,
+  },
+  {
+    key: 'recent',
+    label: 'Recentes',
+    path: '/recent',
+    icon: AccessTimeOutlined,
+    showInNav: true,
+  },
   { key: 'notes', label: 'Notas', path: '/notes', icon: NoteOutlined, showInNav: true },
   { key: 'tags', label: 'Tags', path: '/tags', icon: LocalOfferOutlined, showInNav: true },
   { key: 'graph', label: 'Grafo', path: '/graph', icon: HubOutlined, showInNav: true },

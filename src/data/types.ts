@@ -1,4 +1,6 @@
-export type ItemType = 'note' | 'task' | 'project' | 'area';
+export type NodeType = 'folder' | 'note';
+
+export type LegacyItemType = 'note' | 'task' | 'project' | 'area';
 
 export type BlockType =
   | 'paragraph'
@@ -17,22 +19,40 @@ export type Block = {
   type: BlockType;
   text?: string;
   checked?: boolean;
+  due?: string | null;
+  doneAt?: number | null;
+  priority?: number | null;
+  tags?: string[] | null;
+  createdAt?: number;
   language?: string;
   taskId?: string;
 };
 
-export type BaseItem = {
+export type BaseNode = {
   id: string;
-  type: ItemType;
+  nodeType: NodeType;
   title: string;
-  content: Block[];
+  parentId?: string;
   tags: string[];
   favorite: boolean;
-  linksTo: string[];
+  linksTo?: string[];
   rev: number;
   createdAt: number;
   updatedAt: number;
+  props?: Record<string, unknown>;
+  legacyType?: LegacyItemType;
 };
+
+export type NoteNode = BaseNode & {
+  nodeType: 'note';
+  content: Block[];
+};
+
+export type FolderNode = BaseNode & {
+  nodeType: 'folder';
+};
+
+export type Node = NoteNode | FolderNode;
 
 export type Tombstone = {
   id: string;
@@ -47,19 +67,19 @@ export type Recurrence = {
   interval: number;
 };
 
-export type TaskFields = {
-  status: TaskStatus;
+export type LegacyTaskFields = {
+  status?: TaskStatus;
   dueDate?: number;
   doneAt?: number;
   recurrence?: Recurrence;
   projectId?: string;
   originItemId?: string;
   originBlockId?: string;
-  originType?: ItemType;
+  originType?: LegacyItemType;
 };
 
-export type ProjectFields = {
+export type LegacyProjectFields = {
   nextActionId?: string;
 };
 
-export type Item = BaseItem & Partial<TaskFields & ProjectFields>;
+export type Item = Node;

@@ -1,6 +1,7 @@
-﻿import React from 'react';
-import { Add, ArrowForward, Edit, Visibility } from '@mui/icons-material';
+import React from 'react';
+import { Edit, Visibility } from '@mui/icons-material';
 import {
+  Breadcrumbs,
   Box,
   Button,
   Checkbox,
@@ -9,46 +10,42 @@ import {
   IconButton,
   Link,
   Paper,
-  List,
   Stack,
   TextField,
   Typography,
 } from '@mui/material';
 import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useDebouncedCallback } from '../app/useDebouncedCallback';
 import { upgradeLegacyLinksInText } from '../app/upgradeLinks';
 import { parseWikilinks } from '../app/wikilinks';
 import LoadingState from '../components/LoadingState';
-import ItemRow from '../components/ItemRow';
+import MoveToDialog from '../components/dialogs/MoveToDialog';
+import RenameDialog from '../components/dialogs/RenameDialog';
 import Editor from '../components/editor/Editor';
 import { useEditorHistory } from '../components/editor/useEditorHistory';
-import { useItem, useTasksByProject } from '../data/hooks';
+import { useNotifier } from '../components/Notifier';
+import { useItem } from '../data/hooks';
 import {
-  completeTask,
-  createItem,
   getItem,
   getItemsByIds,
+  moveNode,
   recomputeLinksToFromBlocks,
+  renameNode,
   resolveTitleToId,
   updateItemContent,
-  updateItemProps,
 } from '../data/repo';
-import type { Block, BlockType, Item, ItemType, TaskStatus } from '../data/types';
+import type { Block, BlockType, Node as DataNode, NodeType } from '../data/types';
+import { db } from '../data/db';
+import { useLiveQuery } from 'dexie-react-hooks';
+import FolderPage from './FolderPage';
+import { getPath } from '../vault/path';
 
-const TYPE_LABELS: Record<ItemType, string> = {
+const TYPE_LABELS: Record<NodeType, string> = {
   note: 'Nota',
-  task: 'Tarefa',
-  project: 'Projeto',
-  area: 'Area',
-};
-
-const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: 'A Fazer',
-  doing: 'Fazendo',
-  done: 'Feito',
+  folder: 'Pasta',
 };
 
 const BLOCK_TYPES: BlockType[] = [
@@ -86,6 +83,11 @@ const normalizeBlock = (block: Block): Block => {
     normalized.checked = undefined;
     normalized.language = undefined;
     normalized.taskId = undefined;
+    normalized.due = undefined;
+    normalized.doneAt = undefined;
+    normalized.priority = undefined;
+    normalized.tags = undefined;
+    normalized.createdAt = undefined;
     return normalized;
   }
 
@@ -94,6 +96,11 @@ const normalizeBlock = (block: Block): Block => {
   } else {
     normalized.checked = undefined;
     normalized.taskId = undefined;
+    normalized.due = undefined;
+    normalized.doneAt = undefined;
+    normalized.priority = undefined;
+    normalized.tags = undefined;
+    normalized.createdAt = undefined;
   }
 
   if (type !== 'code') {
@@ -128,14 +135,27 @@ const areBlocksEqual = (left: Block[], right: Block[]) => {
 
 export default function ItemPage() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
+  const notifier = useNotifier();
   const itemId = id ?? '';
   const liveItem = useItem(itemId);
-  const projectTasks = useTasksByProject(itemId);
+  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodesById = React.useMemo(
+    () => new Map(nodes.map((node) => [node.id, node])),
+    [nodes],
+  );
+  const breadcrumbNodes = React.useMemo(
+    () => (itemId ? getPath(itemId, nodesById) : []),
+    [itemId, nodesById],
+  );
+  const locationState = location.state as
+    | { focusEditor?: boolean; highlightBlockId?: string }
+    | null;
 
   const [loading, setLoading] = React.useState(true);
   const [notFound, setNotFound] = React.useState(false);
-  const [itemType, setItemType] = React.useState<ItemType | null>(null);
+  const [nodeType, setNodeType] = React.useState<NodeType | null>(null);
   const emptySnapshot = React.useMemo(
     () => ({ title: '', blocks: [makeBlock('')] }),
     [],
@@ -152,17 +172,17 @@ export default function ItemPage() {
   const presentTitle = present.title;
   const presentBlocks = present.blocks;
   const [isPreview, setIsPreview] = React.useState(false);
-  const [linkItemsById, setLinkItemsById] = React.useState<Record<string, Item>>({});
+  const [linkItemsById, setLinkItemsById] = React.useState<Record<string, DataNode>>({});
   const [titleResolutions, setTitleResolutions] = React.useState<
     Record<string, { status: 'ok' | 'ambiguous' | 'not_found'; id?: string }>
   >({});
-  const resolvedType = liveItem?.type ?? itemType;
-  const isProject = resolvedType === 'project';
-  const projectTaskItems = isProject ? projectTasks : [];
+  const resolvedType = liveItem?.nodeType ?? nodeType;
 
   const [isDirty, setIsDirty] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [lastSavedAt, setLastSavedAt] = React.useState<number | null>(null);
+  const [moveOpen, setMoveOpen] = React.useState(false);
+  const [renameOpen, setRenameOpen] = React.useState(false);
 
   const skipAutosaveRef = React.useRef(true);
   const changeCounterRef = React.useRef(0);
@@ -233,7 +253,7 @@ export default function ItemPage() {
       });
 
       const items = await getItemsByIds(Array.from(ids));
-      const byId: Record<string, Item> = {};
+      const byId: Record<string, DataNode> = {};
       items.forEach((item) => {
         byId[item.id] = item;
       });
@@ -322,15 +342,37 @@ export default function ItemPage() {
           return;
         }
 
+        setNodeType(result.nodeType);
+        if (result.nodeType === 'folder') {
+          setIsDirty(false);
+          setIsSaving(false);
+          setLastSavedAt(result.updatedAt);
+          return;
+        }
+
         const rawContent = Array.isArray(result.content) ? result.content : [];
         const content = rawContent.length > 0 ? rawContent : [makeBlock('')];
-        setItemType(result.type);
         const normalized = content.map(normalizeBlock);
         reset({
           title: result.title ?? '',
           blocks: normalized,
         });
-        setLastFocusedBlockId(normalized[0]?.id ?? null);
+        const highlightBlockId = locationState?.highlightBlockId;
+        const focusEditor = locationState?.focusEditor;
+        const focusTarget =
+          (highlightBlockId &&
+            normalized.find((block) => block.id === highlightBlockId)?.id) ||
+          (focusEditor ? normalized[0]?.id : null);
+
+        setLastFocusedBlockId(focusTarget ?? normalized[0]?.id ?? null);
+        if (focusTarget) {
+          focusNonceRef.current += 1;
+          setFocusRequest({
+            id: focusTarget,
+            position: 'end',
+            nonce: focusNonceRef.current,
+          });
+        }
         lastSavedRef.current = {
           title: result.title ?? '',
           blocks: cloneBlocks(normalized),
@@ -353,10 +395,10 @@ export default function ItemPage() {
     return () => {
       active = false;
     };
-  }, [itemId, reset]);
+  }, [itemId, locationState?.focusEditor, locationState?.highlightBlockId, reset]);
 
   React.useEffect(() => {
-    if (loading || notFound) {
+    if (loading || notFound || resolvedType !== 'note') {
       return;
     }
     if (skipAutosaveRef.current) {
@@ -379,7 +421,15 @@ export default function ItemPage() {
     setIsDirty(true);
     setIsSaving(true);
     debouncedSave(changeCounterRef.current);
-  }, [presentTitle, presentBlocks, cancelDebouncedSave, debouncedSave, loading, notFound]);
+  }, [
+    presentTitle,
+    presentBlocks,
+    cancelDebouncedSave,
+    debouncedSave,
+    loading,
+    notFound,
+    resolvedType,
+  ]);
 
   const handleTitleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setPresent(
@@ -405,7 +455,6 @@ export default function ItemPage() {
   const upgradeLegacyLinks = React.useCallback(async () => {
     const currentBlocks = blocksRef.current;
     let changed = false;
-    let hadAmbiguity = false;
     const nextBlocks: Block[] = [];
 
     for (const block of currentBlocks) {
@@ -414,9 +463,6 @@ export default function ItemPage() {
         continue;
       }
       const result = await upgradeLegacyLinksInText(block.text, resolveTitleToId);
-      if (result.hadAmbiguity) {
-        hadAmbiguity = true;
-      }
       if (result.changed) {
         changed = true;
         nextBlocks.push({ ...block, text: result.text });
@@ -429,7 +475,7 @@ export default function ItemPage() {
       setPresent({ title: draftTitleRef.current, blocks: nextBlocks }, 'structural');
     }
 
-    return { changed, hadAmbiguity };
+    return { changed };
   }, [setPresent, resolveTitleToId]);
 
   const handleCommitTyping = React.useCallback(() => {
@@ -448,97 +494,6 @@ export default function ItemPage() {
     }
     setIsPreview((prev) => !prev);
   }, [isPreview, upgradeLegacyLinks]);
-
-  const handleChecklistToggleTask = React.useCallback(
-    async (taskId: string, checked: boolean) => {
-      try {
-        if (checked) {
-          await completeTask(taskId);
-        } else {
-          await updateItemProps(taskId, { status: 'todo', doneAt: undefined });
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    },
-    [],
-  );
-
-  const handlePromoteChecklist = React.useCallback(
-    async (blockId: string, text: string) => {
-      if (!itemId || !liveItem) {
-        return;
-      }
-      const title = text.trim() || 'Sem titulo';
-      const projectId = liveItem.type === 'project' ? itemId : undefined;
-      try {
-        const created = await createItem({
-          type: 'task',
-          title,
-          status: 'todo',
-          projectId,
-          tags: liveItem.tags ?? [],
-          originItemId: itemId,
-          originBlockId: blockId,
-          originType: liveItem.type,
-        });
-        const nextBlocks = blocksRef.current.map((block) =>
-          block.id === blockId ? { ...block, taskId: created.id } : block,
-        );
-        setPresent({ title: draftTitleRef.current, blocks: nextBlocks }, 'structural');
-      } catch (error) {
-        console.error(error);
-      }
-    },
-    [itemId, liveItem, setPresent],
-  );
-
-  const getNextTaskStatus = React.useCallback((status: TaskStatus) => {
-    if (status === 'todo') {
-      return 'doing';
-    }
-    if (status === 'doing') {
-      return 'done';
-    }
-    return 'done';
-  }, []);
-
-  const handleAdvanceProjectTask = React.useCallback(
-    async (task: Item) => {
-      const status = (task.status ?? 'todo') as TaskStatus;
-      const nextStatus = getNextTaskStatus(status);
-      try {
-        if (nextStatus === 'done') {
-          await completeTask(task.id);
-        } else {
-          await updateItemProps(task.id, {
-            status: nextStatus,
-            doneAt: undefined,
-          });
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    },
-    [getNextTaskStatus],
-  );
-
-  const handleCreateProjectTask = React.useCallback(async () => {
-    if (!itemId || resolvedType !== 'project') {
-      return;
-    }
-    try {
-      const created = await createItem({
-        type: 'task',
-        title: 'Nova tarefa',
-        status: 'todo',
-        projectId: itemId,
-      });
-      navigate(`/item/${created.id}`);
-    } catch (error) {
-      console.error(error);
-    }
-  }, [itemId, navigate, resolvedType]);
 
   const requestFocus = React.useCallback(
     (blocksSnapshot: Block[]) => {
@@ -746,28 +701,39 @@ export default function ItemPage() {
     [renderTextWithLinks],
   );
 
-  const formatTaskDueDate = (timestamp?: number) => {
-    if (!timestamp) {
-      return '';
+  const handleConfirmRename = async (value: string) => {
+    if (!itemId) {
+      return;
     }
-    return format(new Date(timestamp), 'dd/MM');
+    try {
+      await renameNode(itemId, value);
+      notifier.success('Nota renomeada');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao renomear: ${message}`);
+    } finally {
+      setRenameOpen(false);
+    }
   };
 
-  const getTaskStatusColor = (status: TaskStatus) => {
-    if (status === 'done') {
-      return 'success';
+  const handleConfirmMove = async (parentId?: string) => {
+    if (!itemId) {
+      return;
     }
-    if (status === 'doing') {
-      return 'warning';
+    try {
+      await moveNode(itemId, parentId);
+      notifier.success('Nota movida');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao mover: ${message}`);
+    } finally {
+      setMoveOpen(false);
     }
-    return 'default';
   };
 
   if (loading) {
     return <LoadingState message="Carregando item..." />;
   }
-
-  const tagList = Array.isArray(liveItem?.tags) ? liveItem?.tags : [];
 
   if (notFound || !resolvedType) {
     return (
@@ -785,6 +751,12 @@ export default function ItemPage() {
     );
   }
 
+  if (resolvedType === 'folder') {
+    return <FolderPage folderId={itemId} />;
+  }
+
+  const tagList = Array.isArray(liveItem?.tags) ? liveItem?.tags : [];
+
   const saveLabel = isSaving
     ? 'Salvando...'
     : !isDirty && typeof lastSavedAt === 'number' && Number.isFinite(lastSavedAt)
@@ -794,135 +766,120 @@ export default function ItemPage() {
   return (
     <Box ref={editorContainerRef} sx={{ width: '100%', maxWidth: 1000, mx: 'auto' }}>
       <Stack spacing={3}>
-      <Stack spacing={1}>
-        <TextField
-          variant="standard"
-          fullWidth
-          placeholder="Titulo"
-          value={presentTitle}
-          onChange={handleTitleChange}
-          onBlur={handleCommitTyping}
-          InputProps={{
-            disableUnderline: true,
-            sx: { fontSize: '2rem', fontWeight: 600 },
-          }}
-        />
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          alignItems={{ sm: 'center' }}
-        >
-          <Stack direction="row" spacing={1} flexWrap="wrap">
-            <Chip size="small" label={TYPE_LABELS[resolvedType]} />
-            {tagList.map((tag) => (
-              <Chip key={tag} size="small" label={tag} variant="outlined" />
-            ))}
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { sm: 'auto' } }}>
-            {saveLabel && (
-              <Typography color="text.secondary">
-                {saveLabel}
-              </Typography>
-            )}
-            <IconButton
-              size="small"
-              onClick={handleTogglePreview}
-              aria-label={isPreview ? 'Editar' : 'Preview'}
-            >
-              {isPreview ? <Edit /> : <Visibility />}
-            </IconButton>
-          </Stack>
-        </Stack>
-      </Stack>
-
-      {isProject && (
         <Stack spacing={1}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
-            <Typography variant="h6">Tarefas do projeto</Typography>
-            <Button
-              size="small"
-              startIcon={<Add fontSize="small" />}
-              onClick={handleCreateProjectTask}
-            >
-              Criar tarefa
-            </Button>
-          </Stack>
-          {projectTaskItems.length === 0 ? (
-            <Typography color="text.secondary">Nenhuma tarefa vinculada.</Typography>
-          ) : (
-            <List dense disablePadding>
-              {projectTaskItems.map((task) => {
-                const status = (task.status ?? 'todo') as TaskStatus;
-                const dueLabel = formatTaskDueDate(task.dueDate);
-                const secondary = (
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                    <Chip
-                      size="small"
-                      label={TASK_STATUS_LABELS[status]}
-                      color={getTaskStatusColor(status)}
-                    />
-                    {dueLabel && (
-                      <Chip
-                        size="small"
-                        label={`Vence ${dueLabel}`}
-                        color={status === 'done' ? 'default' : 'warning'}
-                        variant={status === 'done' ? 'outlined' : 'filled'}
-                      />
-                    )}
-                  </Stack>
-                );
-                const rightActions = (
-                  <IconButton
-                    size="small"
-                    aria-label="Avancar status"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleAdvanceProjectTask(task);
-                    }}
-                    disabled={status === 'done'}
-                  >
-                    <ArrowForward fontSize="small" />
-                  </IconButton>
-                );
-
+          {breadcrumbNodes.length > 0 && (
+            <Breadcrumbs>
+              {breadcrumbNodes.map((node, index) => {
+                const isLast = index === breadcrumbNodes.length - 1;
+                if (isLast) {
+                  return (
+                    <Typography key={node.id} color="text.primary">
+                      {node.title || 'Sem titulo'}
+                    </Typography>
+                  );
+                }
                 return (
-                  <ItemRow
-                    key={task.id}
-                    item={task}
-                    onOpen={(id) => navigate(`/item/${id}`)}
-                    secondary={secondary}
-                    rightActions={rightActions}
-                  />
+                  <Button
+                    key={node.id}
+                    size="small"
+                    onClick={() => navigate(`/item/${node.id}`)}
+                    sx={{ textTransform: 'none', minWidth: 0 }}
+                  >
+                    {node.title || 'Sem titulo'}
+                  </Button>
                 );
               })}
-            </List>
+            </Breadcrumbs>
+          )}
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            alignItems={{ sm: 'center' }}
+          >
+            <Box sx={{ flex: 1 }}>
+              <TextField
+                variant="standard"
+                fullWidth
+                placeholder="Titulo"
+                value={presentTitle}
+                onChange={handleTitleChange}
+                onBlur={handleCommitTyping}
+                InputProps={{
+                  disableUnderline: true,
+                  sx: { fontSize: '2rem', fontWeight: 600 },
+                }}
+              />
+            </Box>
+            <Stack direction="row" spacing={1}>
+              <Button variant="outlined" onClick={() => setMoveOpen(true)}>
+                Mover
+              </Button>
+              <Button variant="outlined" onClick={() => setRenameOpen(true)}>
+                Renomear
+              </Button>
+            </Stack>
+          </Stack>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            alignItems={{ sm: 'center' }}
+          >
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              <Chip size="small" label={TYPE_LABELS[resolvedType]} />
+              {tagList.map((tag) => (
+                <Chip key={tag} size="small" label={tag} variant="outlined" />
+              ))}
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { sm: 'auto' } }}>
+              {saveLabel && <Typography color="text.secondary">{saveLabel}</Typography>}
+              <IconButton
+                size="small"
+                onClick={handleTogglePreview}
+                aria-label={isPreview ? 'Editar' : 'Preview'}
+              >
+                {isPreview ? <Edit /> : <Visibility />}
+              </IconButton>
+            </Stack>
+          </Stack>
+        </Stack>
+
+        <Stack spacing={2}>
+          {isPreview ? (
+            <Stack spacing={2}>
+              {presentBlocks.map((block, index) => (
+                <Box key={block.id}>{renderBlockPreview(block, index)}</Box>
+              ))}
+            </Stack>
+          ) : (
+            <Editor
+              blocks={presentBlocks}
+              onBlocksChangeTyping={handleBlocksChangeTyping}
+              onBlocksChangeStructural={handleBlocksChangeStructural}
+              onBlur={handleCommitTyping}
+              focusRequest={focusRequest ?? undefined}
+              onFocusBlock={setLastFocusedBlockId}
+            />
           )}
         </Stack>
-      )}
+      </Stack>
 
-      <Stack spacing={2}>
-        {isPreview ? (
-          <Stack spacing={2}>
-            {presentBlocks.map((block, index) => (
-              <Box key={block.id}>{renderBlockPreview(block, index)}</Box>
-            ))}
-          </Stack>
-        ) : (
-          <Editor
-            blocks={presentBlocks}
-            onBlocksChangeTyping={handleBlocksChangeTyping}
-            onBlocksChangeStructural={handleBlocksChangeStructural}
-            onBlur={handleCommitTyping}
-            focusRequest={focusRequest ?? undefined}
-            onFocusBlock={setLastFocusedBlockId}
-            onPromoteChecklist={handlePromoteChecklist}
-            onChecklistToggleTask={handleChecklistToggleTask}
-          />
-        )}
-      </Stack>
-      </Stack>
+      <MoveToDialog
+        open={moveOpen}
+        nodeId={itemId}
+        nodeType="note"
+        currentParentId={liveItem?.parentId}
+        nodes={nodes as DataNode[]}
+        onClose={() => setMoveOpen(false)}
+        onConfirm={handleConfirmMove}
+      />
+
+      <RenameDialog
+        open={renameOpen}
+        initialValue={liveItem?.title ?? ''}
+        title="Renomear nota"
+        onClose={() => setRenameOpen(false)}
+        onConfirm={handleConfirmRename}
+      />
     </Box>
   );
 }
-
-

@@ -14,15 +14,20 @@ import { MoreVert, Star } from '@mui/icons-material';
 import { format } from 'date-fns';
 
 import ConfirmDialog from './ConfirmDialog';
-import type { Item } from '../data/types';
+import type { Node, NodeType } from '../data/types';
 
 type ItemListProps = {
   title?: string;
-  items: Item[];
+  items: Node[];
   onOpen: (id: string) => void;
   onDelete: (id: string) => Promise<void> | void;
-  rightMeta?: (item: Item) => React.ReactNode;
+  rightMeta?: (item: Node) => React.ReactNode;
   dense?: boolean;
+};
+
+const TYPE_LABELS: Record<NodeType, string> = {
+  note: 'nota',
+  folder: 'pasta',
 };
 
 export default function ItemList({
@@ -34,10 +39,10 @@ export default function ItemList({
   dense = true,
 }: ItemListProps) {
   const [menuAnchor, setMenuAnchor] = React.useState<null | HTMLElement>(null);
-  const [menuItem, setMenuItem] = React.useState<Item | null>(null);
-  const [confirmItem, setConfirmItem] = React.useState<Item | null>(null);
+  const [menuItem, setMenuItem] = React.useState<Node | null>(null);
+  const [confirmItem, setConfirmItem] = React.useState<Node | null>(null);
 
-  const handleOpenMenu = (event: React.MouseEvent<HTMLButtonElement>, item: Item) => {
+  const handleOpenMenu = (event: React.MouseEvent<HTMLButtonElement>, item: Node) => {
     setMenuAnchor(event.currentTarget);
     setMenuItem(item);
   };
@@ -67,8 +72,8 @@ export default function ItemList({
     }
   };
 
-  const secondaryText = (item: Item) =>
-    `${item.type} \u2022 Atualizado ${format(new Date(item.updatedAt), 'yyyy-MM-dd HH:mm')}`;
+  const secondaryText = (item: Node) =>
+    `${TYPE_LABELS[item.nodeType]} \u2022 Atualizado ${format(new Date(item.updatedAt), 'yyyy-MM-dd HH:mm')}`;
 
   return (
     <Box>

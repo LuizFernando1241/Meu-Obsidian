@@ -1,14 +1,14 @@
-import type { Item } from '../data/types';
+import type { Node } from '../data/types';
 import type { GraphData, GraphLink, GraphNode } from './graphTypes';
 
-const makeNode = (item: Item): GraphNode => ({
+const makeNode = (item: Node): GraphNode => ({
   id: item.id,
-  label: item.title || 'Sem título',
-  type: item.type,
+  label: item.title || 'Sem tヴtulo',
+  type: item.nodeType,
   favorite: item.favorite,
 });
 
-const makeLinks = (itemsById: Map<string, Item>, items: Item[]) => {
+const makeLinks = (itemsById: Map<string, Node>, items: Node[]) => {
   const linksMap = new Map<string, GraphLink>();
   items.forEach((item) => {
     const targets = item.linksTo ?? [];
@@ -28,20 +28,21 @@ const makeLinks = (itemsById: Map<string, Item>, items: Item[]) => {
   return Array.from(linksMap.values());
 };
 
-export const buildGlobalGraph = (items: Item[]): GraphData => {
-  const itemsById = new Map(items.map((item) => [item.id, item]));
-  const nodes = items.map(makeNode);
-  const links = makeLinks(itemsById, items);
+export const buildGlobalGraph = (items: Node[]): GraphData => {
+  const noteItems = items.filter((item) => item.nodeType === 'note');
+  const itemsById = new Map(noteItems.map((item) => [item.id, item]));
+  const nodes = noteItems.map(makeNode);
+  const links = makeLinks(itemsById, noteItems);
   return { nodes, links };
 };
 
 export const buildLocalGraph = (
-  itemsById: Map<string, Item>,
+  itemsById: Map<string, Node>,
   centerId: string,
   depth = 1,
 ): GraphData => {
   const center = itemsById.get(centerId);
-  if (!center) {
+  if (!center || center.nodeType !== 'note') {
     return { nodes: [], links: [] };
   }
 
@@ -79,12 +80,14 @@ export const buildLocalGraph = (
 
   const nodes = Array.from(included)
     .map((id) => itemsById.get(id))
-    .filter((item): item is Item => Boolean(item))
+    .filter((item): item is Node => Boolean(item))
+    .filter((item) => item.nodeType === 'note')
     .map(makeNode);
 
   const scopedItems = Array.from(included)
     .map((id) => itemsById.get(id))
-    .filter((item): item is Item => Boolean(item));
+    .filter((item): item is Node => Boolean(item))
+    .filter((item) => item.nodeType === 'note');
 
   const links = makeLinks(itemsById, scopedItems).filter(
     (link) => included.has(link.source) && included.has(link.target),

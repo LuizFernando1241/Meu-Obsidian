@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Toolbar, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useMatch, useNavigate } from 'react-router-dom';
 
 import LeftNav from './LeftNav';
 import SearchDialog from './SearchDialog';
@@ -12,6 +12,7 @@ import { useDataStore } from '../store/useDataStore';
 import { executeCommand } from '../command/execute';
 import { useNotifier } from './Notifier';
 import { setLocalChangeHandler } from '../data/repo';
+import { useItem } from '../data/hooks';
 import { getStoredSyncSettings } from '../sync/syncState';
 import { initAutoSync, markDirty, scheduleSyncSoon } from '../sync/syncService';
 
@@ -28,6 +29,9 @@ export default function AppShell() {
     init: state.init,
     createQuick: state.createQuick,
   }));
+  const itemMatch = useMatch('/item/:id');
+  const currentItemId = itemMatch?.params?.id ?? '';
+  const currentItem = useItem(currentItemId);
 
   const [mobileLeftOpen, setMobileLeftOpen] = React.useState(false);
   const [leftCollapsed, setLeftCollapsed] = React.useState(false);
@@ -112,11 +116,11 @@ export default function AppShell() {
 
       if (key === 'n') {
         event.preventDefault();
-        const type = event.shiftKey ? 'task' : 'note';
+        const type = event.shiftKey ? 'folder' : 'note';
         void createQuick(type)
           .then((id) => {
             navigate(`/item/${id}`);
-            notifier.success(type === 'task' ? 'Tarefa criada' : 'Nota criada');
+            notifier.success(type === 'folder' ? 'Pasta criada' : 'Nota criada');
           })
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
@@ -138,7 +142,7 @@ export default function AppShell() {
     command: Parameters<typeof executeCommand>[0],
     rawInput: string,
   ) => {
-    await executeCommand(command, navigate, rawInput);
+    await executeCommand(command, navigate, rawInput, { currentItem });
     setPaletteOpen(false);
   };
 

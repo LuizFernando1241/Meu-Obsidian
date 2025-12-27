@@ -6,15 +6,20 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { Item } from '../../data/types';
+import type { Node, NodeType } from '../../data/types';
+
+const TYPE_LABELS: Record<NodeType, string> = {
+  note: 'Nota',
+  folder: 'Pasta',
+};
 
 type WikilinkAutocompleteProps = {
   open: boolean;
   anchorEl: HTMLElement | null;
   query: string;
-  results: Item[];
+  results: Node[];
   highlightedIndex: number;
-  onSelect: (item: Item) => void;
+  onSelect: (item: Node) => void;
   onCreateNew: (title: string) => void;
   onClose: () => void;
 };
@@ -63,7 +68,7 @@ export default function WikilinkAutocomplete({
                 primary={item.title || 'Sem título'}
                 secondary={
                   <Typography variant="caption" color="text.secondary">
-                    {item.type}
+                    {TYPE_LABELS[item.nodeType]}
                   </Typography>
                 }
               />

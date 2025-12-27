@@ -8,16 +8,16 @@ import ItemList from '../components/ItemList';
 import ListToolbar from '../components/ListToolbar';
 import LoadingState from '../components/LoadingState';
 import { useNotifier } from '../components/Notifier';
-import { useItemsByType } from '../data/hooks';
-import { deleteItem } from '../data/repo';
+import { useNodesByType } from '../data/hooks';
+import { deleteNode } from '../data/repo';
 import { matchesItemSearch } from '../data/search';
-import type { Item } from '../data/types';
+import type { Node } from '../data/types';
 import { useDataStore } from '../store/useDataStore';
 
 export default function NotesPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
-  const items = useItemsByType('note');
+  const items = useNodesByType('note');
   const { createQuick, isSeeding } = useDataStore((state) => ({
     createQuick: state.createQuick,
     isSeeding: state.isSeeding,
@@ -35,7 +35,7 @@ export default function NotesPage() {
     setVisibleCount(200);
   }, [search]);
 
-  const renderMeta = React.useCallback((item: Item) => {
+  const renderMeta = React.useCallback((item: Node) => {
     if (item.tags.length === 0) {
       return null;
     }
@@ -61,7 +61,7 @@ export default function NotesPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteItem(id);
+      await deleteNode(id);
       notifier.success('Nota excluida');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

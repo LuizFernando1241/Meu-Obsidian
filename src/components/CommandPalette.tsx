@@ -13,20 +13,20 @@ import {
 } from '@mui/material';
 import {
   Add,
-  Category,
-  CheckCircle,
+  AccessTime,
   Description,
+  FlashOn,
   Folder,
   Home,
   Hub,
   LocalOffer,
-  Today,
+  Settings,
+  TaskAlt,
 } from '@mui/icons-material';
-import { addDays, format, isSameDay, startOfDay } from 'date-fns';
 
 import { getStaticCommands, type Command } from '../command/commands';
 import { parseInput, stripInputTokens } from '../command/parser';
-import type { ItemType } from '../data/types';
+import type { NodeType } from '../data/types';
 import { useSearchIndex, type SearchHit } from '../search/useSearch';
 
 type CommandPaletteProps = {
@@ -40,23 +40,16 @@ type CommandEntry = {
   icon: React.ReactNode;
 };
 
-const TYPE_LABELS: Record<ItemType, string> = {
+const TYPE_LABELS: Record<NodeType, string> = {
   note: 'Nota',
-  task: 'Tarefa',
-  project: 'Projeto',
-  area: 'Área',
+  folder: 'Pasta',
 };
 
-const typeIcon = (type: ItemType) => {
+const typeIcon = (type: NodeType) => {
   switch (type) {
-    case 'note':
-      return <Description fontSize="small" />;
-    case 'task':
-      return <CheckCircle fontSize="small" />;
-    case 'project':
+    case 'folder':
       return <Folder fontSize="small" />;
-    case 'area':
-      return <Category fontSize="small" />;
+    case 'note':
     default:
       return <Description fontSize="small" />;
   }
@@ -66,36 +59,23 @@ const navIcon = (path: string) => {
   switch (path) {
     case '/':
       return <Home fontSize="small" />;
-    case '/today':
-      return <Today fontSize="small" />;
     case '/tasks':
-      return <CheckCircle fontSize="small" />;
-    case '/projects':
-      return <Folder fontSize="small" />;
-    case '/areas':
-      return <Category fontSize="small" />;
+      return <TaskAlt fontSize="small" />;
+    case '/quick-notes':
+      return <FlashOn fontSize="small" />;
+    case '/recent':
+      return <AccessTime fontSize="small" />;
     case '/notes':
       return <Description fontSize="small" />;
     case '/tags':
       return <LocalOffer fontSize="small" />;
     case '/graph':
       return <Hub fontSize="small" />;
+    case '/settings':
+      return <Settings fontSize="small" />;
     default:
       return <Home fontSize="small" />;
   }
-};
-
-const formatDueLabel = (timestamp: number) => {
-  const date = new Date(timestamp);
-  const today = startOfDay(new Date());
-  const tomorrow = startOfDay(addDays(today, 1));
-  if (isSameDay(date, today)) {
-    return 'hoje';
-  }
-  if (isSameDay(date, tomorrow)) {
-    return 'amanhã';
-  }
-  return format(date, 'yyyy-MM-dd');
 };
 
 export default function CommandPalette({ open, onClose, onExecute }: CommandPaletteProps) {
@@ -147,7 +127,7 @@ export default function CommandPalette({ open, onClose, onExecute }: CommandPale
         command: {
           kind: 'open',
           id: result.id,
-          title: result.title || 'Sem título',
+          title: result.title || 'Sem titulo',
           subtitle,
         },
         icon: typeIcon(result.type),
@@ -162,9 +142,6 @@ export default function CommandPalette({ open, onClose, onExecute }: CommandPale
       const subtitleParts: string[] = [];
       if (parsed.tags.length > 0) {
         subtitleParts.push(`tags ${parsed.tags.map((tag) => `#${tag}`).join(' ')}`);
-      }
-      if (command.itemType === 'task' && parsed.dueDate) {
-        subtitleParts.push(`due ${formatDueLabel(parsed.dueDate)}`);
       }
       entries.push({
         command: {
@@ -244,7 +221,7 @@ export default function CommandPalette({ open, onClose, onExecute }: CommandPale
             fullWidth
           />
           {commandEntries.length === 0 ? (
-            <Typography color="text.secondary">Nenhuma ação disponível.</Typography>
+            <Typography color="text.secondary">Nenhuma acao disponivel.</Typography>
           ) : (
             <List disablePadding>
               {commandEntries.map((entry, index) => (

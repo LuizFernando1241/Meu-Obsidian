@@ -2,19 +2,20 @@
 
 import { EXTRA_ROUTES, NAV_ROUTES, type AppRoute } from './app/routes';
 import AppShell from './components/AppShell';
-import AreasPage from './pages/AreasPage';
 import DebugPage from './pages/DebugPage';
 import GraphPage from './pages/GraphPage';
 import Home from './pages/Home';
 import ItemPage from './pages/ItemPage';
 import NotesPage from './pages/NotesPage';
 import NotFoundPage from './pages/NotFoundPage';
-import ProjectsPage from './pages/ProjectsPage';
+import OverdueViewPage from './pages/OverdueViewPage';
+import QuickNotesPage from './pages/QuickNotesPage';
+import RecentPage from './pages/RecentPage';
 import SettingsPage from './pages/SettingsPage';
 import TagPage from './pages/TagPage';
 import TagsIndexPage from './pages/TagsIndexPage';
-import TasksPage from './pages/TasksPage';
-import TodayPage from './pages/TodayPage';
+import TasksViewPage from './pages/TasksViewPage';
+import TodayViewPage from './pages/TodayViewPage';
 
 const routesByKey = [...NAV_ROUTES, ...EXTRA_ROUTES].reduce<Record<string, AppRoute>>(
   (acc, route) => {
@@ -30,11 +31,12 @@ export default function App() {
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route path={routesByKey.home.path} element={<Home />} />
-          <Route path={routesByKey.today.path} element={<TodayPage />} />
+          <Route path={routesByKey.tasks.path} element={<TasksViewPage />} />
+          <Route path={routesByKey.today.path} element={<TodayViewPage />} />
+          <Route path={routesByKey.overdue.path} element={<OverdueViewPage />} />
+          <Route path={routesByKey['quick-notes'].path} element={<QuickNotesPage />} />
+          <Route path={routesByKey.recent.path} element={<RecentPage />} />
           <Route path={routesByKey.notes.path} element={<NotesPage />} />
-          <Route path={routesByKey.projects.path} element={<ProjectsPage />} />
-          <Route path={routesByKey.areas.path} element={<AreasPage />} />
-          <Route path={routesByKey.tasks.path} element={<TasksPage />} />
           <Route path={routesByKey.tags.path} element={<TagsIndexPage />} />
           <Route path={routesByKey.graph.path} element={<GraphPage />} />
           <Route path={routesByKey.tag.path} element={<TagPage />} />

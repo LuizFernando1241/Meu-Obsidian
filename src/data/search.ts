@@ -1,6 +1,6 @@
-import type { Item } from './types';
+import type { Node } from './types';
 
-export const matchesItemSearch = (item: Item, query: string) => {
+export const matchesItemSearch = (item: Node, query: string) => {
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
     return true;
@@ -9,6 +9,10 @@ export const matchesItemSearch = (item: Item, query: string) => {
   const inTitle = item.title.toLowerCase().includes(normalized);
   if (inTitle) {
     return true;
+  }
+
+  if (item.nodeType !== 'note') {
+    return false;
   }
 
   return item.content.some((block) => {

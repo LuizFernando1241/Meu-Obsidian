@@ -15,7 +15,7 @@ import {
 
 import { useDebouncedCallback } from '../app/useDebouncedCallback';
 import LoadingState from './LoadingState';
-import type { ItemType } from '../data/types';
+import type { NodeType } from '../data/types';
 import { useSearchIndex, type SearchHit, type TypeFilter } from '../search/useSearch';
 
 type SearchDialogProps = {
@@ -24,11 +24,9 @@ type SearchDialogProps = {
   onSelect: (id: string) => void;
 };
 
-const TYPE_LABELS: Record<ItemType, string> = {
+const TYPE_LABELS: Record<NodeType, string> = {
   note: 'Notas',
-  task: 'Tarefas',
-  project: 'Projetos',
-  area: 'Áreas',
+  folder: 'Pastas',
 };
 
 export default function SearchDialog({ open, onClose, onSelect }: SearchDialogProps) {
@@ -118,7 +116,7 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
               debouncedQuery(value);
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Buscar por título, texto, tags..."
+            placeholder="Buscar por titulo, texto, tags..."
             fullWidth
           />
           <Tabs
@@ -129,9 +127,7 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
           >
             <Tab value="all" label="Todos" />
             <Tab value="note" label="Notas" />
-            <Tab value="task" label="Tarefas" />
-            <Tab value="project" label="Projetos" />
-            <Tab value="area" label="Áreas" />
+            <Tab value="folder" label="Pastas" />
           </Tabs>
           {!ready ? (
             <LoadingState message="Indexando itens..." />
@@ -144,9 +140,19 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
               {results.map((result, index) => {
                 const snippet = getSnippet(result.id, query);
                 const typeLabel = TYPE_LABELS[result.type];
-                const secondary = snippet
-                  ? `${typeLabel} \u2022 ${snippet}`
-                  : typeLabel;
+                const pathLabel = result.pathText || 'Raiz';
+                const secondary = (
+                  <Stack spacing={0.25}>
+                    <Typography variant="body2" color="text.secondary">
+                      {`${typeLabel} \u2022 ${pathLabel}`}
+                    </Typography>
+                    {snippet && (
+                      <Typography variant="body2" color="text.secondary">
+                        {snippet}
+                      </Typography>
+                    )}
+                  </Stack>
+                );
 
                 return (
                   <ListItemButton
@@ -155,8 +161,10 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
                     onClick={() => handleSelect(result.id)}
                   >
                     <ListItemText
-                      primary={result.title || 'Sem título'}
+                      primary={result.title || 'Sem titulo'}
                       secondary={secondary}
+                      primaryTypographyProps={{ component: 'div' }}
+                      secondaryTypographyProps={{ component: 'div' }}
                     />
                   </ListItemButton>
                 );

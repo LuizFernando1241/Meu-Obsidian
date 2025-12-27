@@ -1,28 +1,16 @@
 import type { NavigateFunction } from 'react-router-dom';
 
-import { createItem } from '../data/repo';
-import type { ItemType } from '../data/types';
+import { createFolder, createNote } from '../data/repo';
+import type { Node } from '../data/types';
 import type { Command } from './commands';
 import { parseInput } from './parser';
 
-const buildPayload = (
-  itemType: ItemType,
-  rawInput: string,
-) => {
+const buildPayload = (rawInput: string) => {
   const parsed = parseInput(rawInput);
   const payload = {
-    type: itemType,
     title: parsed.cleanTitle,
     tags: parsed.tags,
   };
-
-  if (itemType === 'task') {
-    return {
-      ...payload,
-      status: 'todo' as const,
-      dueDate: parsed.dueDate,
-    };
-  }
 
   return payload;
 };
@@ -31,6 +19,7 @@ export const executeCommand = async (
   command: Command,
   navigate: NavigateFunction,
   rawInput: string,
+  context?: { currentItem?: Node | null },
 ) => {
   if (command.kind === 'nav') {
     navigate(command.path);
@@ -43,8 +32,23 @@ export const executeCommand = async (
   }
 
   if (command.kind === 'create') {
-    const payload = buildPayload(command.itemType, rawInput);
-    const item = await createItem(payload);
-    navigate(`/item/${item.id}`);
+    const payload = buildPayload(rawInput);
+    const resolveParentId = () => {
+      if (command.target === 'root') {
+        return undefined;
+      }
+      if (!context?.currentItem) {
+        return undefined;
+      }
+      return context.currentItem.nodeType === 'folder'
+        ? context.currentItem.id
+        : context.currentItem.parentId;
+    };
+    const parentId = resolveParentId();
+    const item =
+      command.nodeType === 'folder'
+        ? await createFolder({ ...payload, parentId })
+        : await createNote({ ...payload, parentId });
+    navigate(`/item/${item.id}`, { state: { focusEditor: true } });
   }
 };

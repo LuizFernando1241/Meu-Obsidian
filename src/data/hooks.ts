@@ -4,25 +4,21 @@ import {
   getItemsByIds,
   getItem,
   listBacklinks,
-  listByType,
   listFavorites,
-  listNoDueDateTasks,
-  listOpenTasks,
-  listOverdueTasks,
+  listByNodeType,
+  listChildren,
   listOutgoingLinks,
   listRecent,
-  listTasksByProject,
-  listTodayTasks,
 } from './repo';
-import type { Item, ItemType } from './types';
+import type { Node, NodeType } from './types';
 
-export const useItem = (id: string): Item | undefined =>
+export const useItem = (id: string): Node | undefined =>
   useLiveQuery(() => (id ? getItem(id) : undefined), [id]);
 
-export const useBacklinks = (targetId: string): Item[] =>
+export const useBacklinks = (targetId: string): Node[] =>
   useLiveQuery(() => (targetId ? listBacklinks(targetId) : []), [targetId]) ?? [];
 
-export const useOutgoingLinks = (itemId: string): Item[] => {
+export const useOutgoingLinks = (itemId: string): Node[] => {
   const item = useItem(itemId);
   const linksKey = item?.linksTo?.join('|') ?? '';
   return (
@@ -30,44 +26,23 @@ export const useOutgoingLinks = (itemId: string): Item[] => {
   );
 };
 
-export const useItemsByType = (type: ItemType): Item[] =>
-  useLiveQuery(() => listByType(type), [type]) ?? [];
+export const useNodesByType = (nodeType: NodeType): Node[] =>
+  useLiveQuery(() => listByNodeType(nodeType), [nodeType]) ?? [];
 
-export const useTasksByProject = (projectId: string): Item[] =>
-  useLiveQuery(() => (projectId ? listTasksByProject(projectId) : []), [projectId]) ?? [];
+export const useChildren = (parentId?: string): Node[] =>
+  useLiveQuery(() => listChildren(parentId), [parentId ?? 'root']) ?? [];
 
-export const useItemsByIds = (ids: string[]): Item[] => {
+export const useItemsByIds = (ids: string[]): Node[] => {
   const key = ids.join('|');
   return useLiveQuery(() => (ids.length ? getItemsByIds(ids) : []), [key]) ?? [];
 };
 
-export const useFavorites = (): Item[] => useLiveQuery(() => listFavorites(), []) ?? [];
+export const useFavorites = (): Node[] => useLiveQuery(() => listFavorites(), []) ?? [];
 
-export const useRecent = (limit: number): Item[] =>
+export const useRecent = (limit: number): Node[] =>
   useLiveQuery(() => listRecent(limit), [limit]) ?? [];
 
-export const useTodayTasks = (): Item[] => {
-  const dayKey = new Date().toDateString();
-  return useLiveQuery(() => listTodayTasks(Date.now()), [dayKey]) ?? [];
-};
-
-export const useOverdueTasks = (): Item[] => {
-  const dayKey = new Date().toDateString();
-  return useLiveQuery(() => listOverdueTasks(Date.now()), [dayKey]) ?? [];
-};
-
-export const useOpenTasksNoDueDate = (): Item[] =>
-  useLiveQuery(() => listNoDueDateTasks(), []) ?? [];
-
-export const useProjects = (limit = 5): Item[] =>
-  useLiveQuery(async () => {
-    const projects = await listByType('project');
-    return projects.slice(0, limit);
-  }, [limit]) ?? [];
-
-export const useRecentItems = (limit = 10): Item[] =>
+export const useRecentItems = (limit = 10): Node[] =>
   useLiveQuery(() => listRecent(limit), [limit]) ?? [];
 
-export const useFavoriteItems = (): Item[] => useLiveQuery(() => listFavorites(), []) ?? [];
-
-export const useOpenTasks = (): Item[] => useLiveQuery(() => listOpenTasks(), []) ?? [];
+export const useFavoriteItems = (): Node[] => useLiveQuery(() => listFavorites(), []) ?? [];

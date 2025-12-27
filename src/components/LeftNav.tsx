@@ -8,6 +8,7 @@ import {
   ListItemText,
   Tooltip,
   Toolbar,
+  Typography,
 } from '@mui/material';
 import {
   ChevronLeft,
@@ -16,6 +17,7 @@ import {
 import { NavLink } from 'react-router-dom';
 
 import { NAV_ROUTES } from '../app/routes';
+import VaultExplorer from './VaultExplorer';
 
 type LeftNavProps = {
   isMobile: boolean;
@@ -49,52 +51,66 @@ export default function LeftNav({
   const drawerContent = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Toolbar />
-      <List sx={{ flexGrow: 1 }}>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const button = (
-            <ListItemButton
-              key={item.key}
-              component={NavLink}
-              to={item.path}
-              end={item.path === '/'}
-              onClick={handleNavigate}
-              sx={{
-                minHeight: 48,
-                px: collapsed ? 1.5 : 2.5,
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                '&.active, &[aria-current="page"]': {
-                  bgcolor: 'action.selected',
-                  '& .MuiListItemIcon-root': { color: 'text.primary' },
-                },
-              }}
+      <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
+        {!collapsed && (
+          <VaultExplorer isMobile={isMobile} onNavigate={handleNavigate} />
+        )}
+        <Divider />
+        <List>
+          {!collapsed && (
+            <Typography
+              variant="overline"
+              sx={{ px: 2.5, py: 1, display: 'block', color: 'text.secondary' }}
             >
-              <ListItemIcon
+              Views
+            </Typography>
+          )}
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const button = (
+              <ListItemButton
+                key={item.key}
+                component={NavLink}
+                to={item.path}
+                end={item.path === '/'}
+                onClick={handleNavigate}
                 sx={{
-                  minWidth: 0,
-                  mr: collapsed ? 0 : 2,
-                  justifyContent: 'center',
+                  minHeight: 48,
+                  px: collapsed ? 1.5 : 2.5,
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  '&.active, &[aria-current="page"]': {
+                    bgcolor: 'action.selected',
+                    '& .MuiListItemIcon-root': { color: 'text.primary' },
+                  },
                 }}
               >
-                {Icon ? <Icon /> : null}
-              </ListItemIcon>
-              <ListItemText
-                primary={item.label}
-                primaryTypographyProps={{ noWrap: true }}
-                sx={{ opacity: collapsed ? 0 : 1 }}
-              />
-            </ListItemButton>
-          );
+                <ListItemIcon
+                  sx={{
+                    minWidth: 0,
+                    mr: collapsed ? 0 : 2,
+                    justifyContent: 'center',
+                  }}
+                >
+                  {Icon ? <Icon /> : null}
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  primaryTypographyProps={{ noWrap: true }}
+                  sx={{ opacity: collapsed ? 0 : 1 }}
+                />
+              </ListItemButton>
+            );
 
-          return collapsed ? (
-            <Tooltip key={item.key} title={item.label} placement="right">
-              {button}
-            </Tooltip>
-          ) : (
-            button
-          );
-        })}
-      </List>
+            return collapsed ? (
+              <Tooltip key={item.key} title={item.label} placement="right">
+                {button}
+              </Tooltip>
+            ) : (
+              button
+            );
+          })}
+        </List>
+      </Box>
       {!isMobile && (
         <>
           <Divider />

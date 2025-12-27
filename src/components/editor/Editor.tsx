@@ -3,8 +3,8 @@ import { Box, Stack } from '@mui/material';
 import { v4 as uuidv4 } from 'uuid';
 
 import { replaceRange } from '../../app/wikilinks';
-import { createItem, searchByTitlePrefix } from '../../data/repo';
-import type { Block, BlockType, Item } from '../../data/types';
+import { createNote, searchByTitlePrefix } from '../../data/repo';
+import type { Block, BlockType, Node } from '../../data/types';
 import BlockEditor from './BlockEditor';
 import { arrayMove, findIndexById } from './reorder';
 import SlashMenu from './SlashMenu';
@@ -119,7 +119,7 @@ export default function Editor({
     query: string;
   } | null>(null);
   const [linkState, setLinkState] = React.useState<LinkState | null>(null);
-  const [linkResults, setLinkResults] = React.useState<Item[]>([]);
+  const [linkResults, setLinkResults] = React.useState<Node[]>([]);
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
   const [overId, setOverId] = React.useState<string | null>(null);
   const [dropPosition, setDropPosition] = React.useState<'above' | 'below' | null>(null);
@@ -431,7 +431,7 @@ export default function Editor({
         return;
       }
       try {
-        const created = await createItem({ type: 'note', title });
+        const created = await createNote({ title });
         applyLinkInsertion({ id: created.id, title: created.title });
       } catch (error) {
         console.error(error);
@@ -441,7 +441,7 @@ export default function Editor({
   );
 
   const handleSelectItem = React.useCallback(
-    (item: Item) => {
+    (item: Node) => {
       applyLinkInsertion({ id: item.id, title: item.title });
     },
     [applyLinkInsertion],
@@ -553,6 +553,10 @@ export default function Editor({
       meta?: { selectionStart?: number; selectionEnd?: number },
     ) => {
       const current = blocksRef.current.find((block) => block.id === blockId);
+      const nextPatch: Partial<Block> = { ...patch };
+      if (typeof patch.checked === 'boolean' && !('doneAt' in patch)) {
+        nextPatch.doneAt = patch.checked ? Date.now() : null;
+      }
       if (
         current?.taskId &&
         typeof patch.checked === 'boolean' &&
@@ -560,16 +564,17 @@ export default function Editor({
       ) {
         onChecklistToggleTask(current.taskId, patch.checked);
       }
-      if (typeof patch.text === 'string') {
-        updateSlashState(blockId, patch.text);
-        updateLinkState(blockId, patch.text, meta);
+      if (typeof nextPatch.text === 'string') {
+        updateSlashState(blockId, nextPatch.text);
+        updateLinkState(blockId, nextPatch.text, meta);
       }
 
       const mode: 'typing' | 'structural' =
-        typeof patch.text === 'string' ? 'typing' : 'structural';
+        typeof nextPatch.text === 'string' ? 'typing' : 'structural';
 
       updateBlocks(
-        (prev) => prev.map((block) => (block.id === blockId ? { ...block, ...patch } : block)),
+        (prev) =>
+          prev.map((block) => (block.id === blockId ? { ...block, ...nextPatch } : block)),
         mode,
       );
     },
@@ -622,8 +627,17 @@ export default function Editor({
 
         if (nextType === 'checklist') {
           nextBlock.checked = current.checked ?? false;
+          if (!nextBlock.createdAt) {
+            nextBlock.createdAt = Date.now();
+          }
         } else {
           nextBlock.checked = undefined;
+          nextBlock.due = undefined;
+          nextBlock.doneAt = undefined;
+          nextBlock.priority = undefined;
+          nextBlock.tags = undefined;
+          nextBlock.createdAt = undefined;
+          nextBlock.taskId = undefined;
         }
 
         if (nextType === 'code') {

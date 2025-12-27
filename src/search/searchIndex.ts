@@ -1,28 +1,31 @@
 import MiniSearch from 'minisearch';
 
-import type { Item, ItemType } from '../data/types';
+import type { Node, NodeType } from '../data/types';
 
 export type SearchDoc = {
   id: string;
   title: string;
-  type: ItemType;
+  type: NodeType;
   tagsText: string;
   contentText: string;
   updatedAt: number;
 };
 
-export const itemToDoc = (item: Item): SearchDoc => {
-  const contentText = item.content
-    .filter((block) => block.type !== 'divider')
-    .map((block) => block.text ?? '')
-    .filter(Boolean)
-    .join(' ');
+export const itemToDoc = (item: Node): SearchDoc => {
+  const contentText =
+    item.nodeType === 'note'
+      ? item.content
+          .filter((block) => block.type !== 'divider')
+          .map((block) => block.text ?? '')
+          .filter(Boolean)
+          .join(' ')
+      : '';
 
   return {
     id: item.id,
     title: item.title,
-    type: item.type,
-    tagsText: item.tags.join(' '),
+    type: item.nodeType,
+    tagsText: (item.tags ?? []).join(' '),
     contentText,
     updatedAt: item.updatedAt,
   };

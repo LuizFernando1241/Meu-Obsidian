@@ -2,11 +2,11 @@ import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 import { db } from '../data/db';
-import type { Item } from '../data/types';
+import type { Node } from '../data/types';
 import { buildGlobalGraph, buildLocalGraph } from './buildGraph';
 import type { GraphData } from './graphTypes';
 
-const buildItemsKey = (items: Item[] | undefined) => {
+const buildItemsKey = (items: Node[] | undefined) => {
   if (!items || items.length === 0) {
     return 'empty';
   }

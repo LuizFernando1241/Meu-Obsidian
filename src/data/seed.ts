@@ -1,8 +1,7 @@
-﻿import { addDays, subDays } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 
 import { db } from './db';
-import { createItem } from './repo';
+import { createFolder, createNote } from './repo';
 import type { Block } from './types';
 
 const makeParagraph = (text: string): Block => ({
@@ -19,61 +18,27 @@ export const ensureSeedData = async () => {
     return;
   }
 
-  await createItem({
-    type: 'project',
+  const appFolder = await createFolder({
     title: 'App Pessoal',
-    content: makeContent('Projeto base do Mecflux Personal OS.'),
     tags: ['mecflux', 'sistema'],
   });
 
-  await createItem({
-    type: 'area',
-    title: 'Saúde',
-    content: makeContent('Rotinas e acompanhamentos pessoais.'),
-    tags: ['saúde'],
+  await createFolder({
+    title: 'Saude',
+    tags: ['saude'],
   });
 
-  await createItem({
-    type: 'note',
+  await createNote({
     title: 'Boas-vindas',
-    content: makeContent('Este é o seu espaço pessoal.'),
+    content: makeContent('Este e o seu espaco pessoal.'),
     tags: ['inbox'],
     favorite: true,
   });
 
-  await createItem({
-    type: 'note',
+  await createNote({
     title: 'Ideias do projeto',
     content: makeContent('Rascunhos para [[App Pessoal]] e fluxo principal.'),
     tags: ['mecflux', 'ideias'],
-  });
-
-  const now = new Date();
-
-  await createItem({
-    type: 'task',
-    title: 'Definir objetivos da semana',
-    content: makeContent('Liste as três metas principais.'),
-    status: 'todo',
-    dueDate: addDays(now, 2).getTime(),
-    tags: ['planejamento'],
-  });
-
-  await createItem({
-    type: 'task',
-    title: 'Revisar hábitos de sono',
-    content: makeContent('Comparar rotina com a área Saúde.'),
-    status: 'doing',
-    dueDate: addDays(now, 1).getTime(),
-    tags: ['saúde'],
-  });
-
-  await createItem({
-    type: 'task',
-    title: 'Organizar notas antigas',
-    content: makeContent('Limpar tags e atualizar links.'),
-    status: 'done',
-    doneAt: subDays(now, 1).getTime(),
-    tags: ['organização'],
+    parentId: appFolder.id,
   });
 };

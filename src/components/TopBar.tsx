@@ -136,9 +136,7 @@ export default function TopBar({
         </Button>
         <Menu id="create-menu" anchorEl={anchorEl} open={menuOpen} onClose={handleMenuClose}>
           <MenuItem onClick={handleMenuClose}>Nota</MenuItem>
-          <MenuItem onClick={handleMenuClose}>Tarefa</MenuItem>
-          <MenuItem onClick={handleMenuClose}>Projeto</MenuItem>
-          <MenuItem onClick={handleMenuClose}>Area</MenuItem>
+          <MenuItem onClick={handleMenuClose}>Pasta</MenuItem>
         </Menu>
         <IconButton color="inherit" onClick={onOpenSearch} aria-label="Buscar">
           <Search />

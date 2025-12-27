@@ -1,11 +1,11 @@
 import { addDays, isValid, parseISO, startOfDay } from 'date-fns';
 
-import type { ItemType } from '../data/types';
+import type { NodeType } from '../data/types';
 
 export type ParsedInput = {
   cleanTitle: string;
   tags: string[];
-  inferredType?: ItemType;
+  inferredType?: NodeType;
   dueDate?: number;
 };
 
@@ -20,19 +20,13 @@ const normalizeTags = (rawTags: string[]) => {
   return Array.from(set);
 };
 
-const detectType = (text: string): ItemType | undefined => {
+const detectType = (text: string): NodeType | undefined => {
   const lower = text.toLowerCase();
-  if (/@tasks?\b/.test(lower)) {
-    return 'task';
+  if (/@folders?\b/.test(lower) || /@pastas?\b/.test(lower)) {
+    return 'folder';
   }
-  if (/@notes?\b/.test(lower)) {
+  if (/@notes?\b/.test(lower) || /@notas?\b/.test(lower)) {
     return 'note';
-  }
-  if (/@projects?\b/.test(lower)) {
-    return 'project';
-  }
-  if (/@areas?\b/.test(lower)) {
-    return 'area';
   }
   return undefined;
 };

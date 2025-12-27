@@ -1,6 +1,6 @@
 import MiniSearch from 'minisearch';
 
-import type { Item } from '../data/types';
+import type { Node } from '../data/types';
 import { buildIndex, itemToDoc, type SearchDoc } from './searchIndex';
 
 export class SearchIndexService {
@@ -9,7 +9,7 @@ export class SearchIndexService {
   private revById = new Map<string, number>();
   private ready = false;
 
-  init(items: Item[]) {
+  init(items: Node[]) {
     const docs = items.map(itemToDoc);
     this.index = buildIndex(docs);
     this.docsById = new Map(docs.map((doc) => [doc.id, doc]));
@@ -17,7 +17,7 @@ export class SearchIndexService {
     this.ready = true;
   }
 
-  applyDelta(items: Item[]) {
+  applyDelta(items: Node[]) {
     if (!this.index || !this.ready) {
       this.init(items);
       return;
@@ -25,8 +25,8 @@ export class SearchIndexService {
 
     const incomingById = new Map(items.map((item) => [item.id, item]));
     const removedIds: string[] = [];
-    const newItems: Item[] = [];
-    const changedItems: Item[] = [];
+    const newItems: Node[] = [];
+    const changedItems: Node[] = [];
 
     this.revById.forEach((_, id) => {
       if (!incomingById.has(id)) {
@@ -83,7 +83,7 @@ export class SearchIndexService {
     }
   }
 
-  search(query: string, typeFilter: 'all' | Item['type'], limit = 50) {
+  search(query: string, typeFilter: 'all' | Node['nodeType'], limit = 50) {
     if (!this.index || !this.ready) {
       return [] as Array<{ id: string; score?: number }>;
     }
