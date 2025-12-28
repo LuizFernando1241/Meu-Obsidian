@@ -4,6 +4,7 @@ import {
   CheckBoxOutlined,
   EventBusyOutlined,
   FlashOnOutlined,
+  HelpOutline,
   HomeOutlined,
   HubOutlined,
   LocalOfferOutlined,
@@ -42,6 +43,13 @@ export const NAV_ROUTES: AppRoute[] = [
   { key: 'notes', label: 'Notas', path: '/notes', icon: NoteOutlined, showInNav: true },
   { key: 'tags', label: 'Tags', path: '/tags', icon: LocalOfferOutlined, showInNav: true },
   { key: 'graph', label: 'Grafo', path: '/graph', icon: HubOutlined, showInNav: true },
+  {
+    key: 'help',
+    label: 'Ajuda / Atalhos',
+    path: '/help',
+    icon: HelpOutline,
+    showInNav: true,
+  },
   {
     key: 'settings',
     label: 'Configuracoes',

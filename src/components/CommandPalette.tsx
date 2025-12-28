@@ -17,6 +17,7 @@ import {
   Description,
   FlashOn,
   Folder,
+  HelpOutline,
   Home,
   Hub,
   LocalOffer,
@@ -71,6 +72,9 @@ const navIcon = (path: string) => {
       return <LocalOffer fontSize="small" />;
     case '/graph':
       return <Hub fontSize="small" />;
+    case '/help':
+    case '/help#shortcuts':
+      return <HelpOutline fontSize="small" />;
     case '/settings':
       return <Settings fontSize="small" />;
     default:

@@ -13,6 +13,7 @@ import { executeCommand } from '../command/execute';
 import { useNotifier } from './Notifier';
 import { setLocalChangeHandler } from '../data/repo';
 import { useItem } from '../data/hooks';
+import type { NodeType } from '../data/types';
 import { getStoredSyncSettings } from '../sync/syncState';
 import { initAutoSync, markDirty, scheduleSyncSoon } from '../sync/syncService';
 
@@ -84,14 +85,28 @@ export default function AppShell() {
   }, []);
 
   React.useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!target || !(target instanceof HTMLElement)) {
+        return false;
+      }
+      const tag = target.tagName.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || target.isContentEditable;
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      const isModifier = event.ctrlKey || event.metaKey;
-      if (!isModifier) {
+      const dialogOpen = Boolean(document.querySelector('[role="dialog"]'));
+      if (dialogOpen) {
         return;
       }
 
-      const dialogOpen = Boolean(document.querySelector('[role="dialog"]'));
-      if (dialogOpen) {
+      if (event.key === '?' && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        navigate('/help');
+        return;
+      }
+
+      const isModifier = event.ctrlKey || event.metaKey;
+      if (!isModifier) {
         return;
       }
 
@@ -146,6 +161,22 @@ export default function AppShell() {
     setPaletteOpen(false);
   };
 
+  const handleCreate = React.useCallback(
+    async (type: NodeType) => {
+      try {
+        const id = await createQuick(type);
+        navigate(`/item/${id}`, {
+          state: type === 'note' ? { focusEditor: true } : undefined,
+        });
+        notifier.success(type === 'folder' ? 'Pasta criada' : 'Nota criada');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao criar: ${message}`);
+      }
+    },
+    [createQuick, navigate, notifier],
+  );
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <TopBar
@@ -156,6 +187,8 @@ export default function AppShell() {
         onToggleRightPanel={handleRightToggle}
         onOpenSearch={openSearch}
         onOpenPalette={openPalette}
+        onCreate={handleCreate}
+        onOpenSettings={() => navigate('/settings')}
       />
       <LeftNav
         isMobile={isMobile}

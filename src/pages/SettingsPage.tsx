@@ -15,24 +15,26 @@ import {
   Typography,
 } from '@mui/material';
 import { format } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
 
+import { BUILD_TIME, GIT_SHA, MODE } from '../app/buildInfo';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useNotifier } from '../components/Notifier';
 import {
-  downloadJson,
-  exportAll,
-  importMerge,
-  importReplaceAll,
-  validateBackup,
-  type BackupPayload,
+  exportVaultJson,
+  importVaultJson,
+  resetLocalData,
+  validateVaultBackup,
 } from '../data/backup';
-import { wipeAll } from '../data/repo';
 import { readRemoteVault, testConnection } from '../sync/gistClient';
 import { syncNowManual, setAutoSyncEnabled, setIntervalMin } from '../sync/syncService';
 import { getSyncPrefs, getSyncState, subscribeSyncState } from '../sync/syncState';
 import type { SyncSettings } from '../sync/types';
 
 type ImportMode = 'replace' | 'merge';
+type FileSummary = {
+  nodeCount: number;
+};
 
 const SYNC_SETTINGS_KEY = 'mf_sync_settings';
 
@@ -58,13 +60,17 @@ const readStoredSyncSettings = (): SyncSettings => {
 
 export default function SettingsPage() {
   const notifier = useNotifier();
+  const navigate = useNavigate();
   const [importMode, setImportMode] = React.useState<ImportMode>('replace');
-  const [payload, setPayload] = React.useState<BackupPayload | null>(null);
+  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
+  const [fileInfo, setFileInfo] = React.useState<FileSummary | null>(null);
   const [fileName, setFileName] = React.useState('');
   const [fileError, setFileError] = React.useState<string | null>(null);
   const [confirmImportOpen, setConfirmImportOpen] = React.useState(false);
-  const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
   const [isBusy, setIsBusy] = React.useState(false);
+  const [resetBusy, setResetBusy] = React.useState(false);
+  const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
+  const [confirmResetDownloadOpen, setConfirmResetDownloadOpen] = React.useState(false);
   const [syncBusy, setSyncBusy] = React.useState(false);
   const [syncSettings, setSyncSettings] = React.useState<SyncSettings>(
     readStoredSyncSettings,
@@ -81,10 +87,7 @@ export default function SettingsPage() {
   const handleExport = async () => {
     setIsBusy(true);
     try {
-      const data = await exportAll();
-      const timestamp = format(new Date(), 'yyyyMMdd-HHmm');
-      const filename = `mecflux-personal-os-backup-${timestamp}.json`;
-      downloadJson(data, filename);
+      await exportVaultJson();
       notifier.success('Backup exportado');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -95,7 +98,8 @@ export default function SettingsPage() {
   };
 
   const resetFileState = () => {
-    setPayload(null);
+    setSelectedFile(null);
+    setFileInfo(null);
     setFileName('');
     setFileError(null);
   };
@@ -107,42 +111,53 @@ export default function SettingsPage() {
       return;
     }
 
+    setSelectedFile(file);
     setFileName(file.name);
     setFileError(null);
+    setFileInfo(null);
 
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text) as BackupPayload;
-      const validation = validateBackup(parsed);
+      const parsed = JSON.parse(text) as unknown;
+      const validation = validateVaultBackup(parsed);
       if (!validation.ok) {
-        setPayload(null);
         setFileError(validation.error ?? 'Backup invalido.');
         return;
       }
-      setPayload(parsed);
+      setFileInfo({ nodeCount: validation.nodeCount });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setPayload(null);
       setFileError(`Falha ao ler arquivo: ${message}`);
     }
   };
 
+  const handleImportClick = () => {
+    if (!selectedFile || !fileInfo || fileError) {
+      return;
+    }
+    if (importMode === 'replace') {
+      setConfirmImportOpen(true);
+      return;
+    }
+    void handleConfirmImport();
+  };
+
   const handleConfirmImport = async () => {
-    if (!payload) {
+    if (!selectedFile) {
       return;
     }
     setIsBusy(true);
     try {
-      if (importMode === 'replace') {
-        await importReplaceAll(payload);
-        notifier.success('Backup restaurado');
+      const result = await importVaultJson(selectedFile, importMode);
+      if (result.mode === 'replace') {
+        notifier.success('Import concluido');
       } else {
-        const result = await importMerge(payload);
         notifier.success(
           `Importado: ${result.added} novos, ${result.updated} atualizados`,
         );
       }
       resetFileState();
+      navigate('/');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao importar: ${message}`);
@@ -153,16 +168,47 @@ export default function SettingsPage() {
   };
 
   const handleReset = async () => {
-    setIsBusy(true);
+    setResetBusy(true);
     try {
-      await wipeAll();
-      notifier.success('Banco resetado');
+      await resetLocalData();
+      notifier.success('Dados locais apagados');
+      navigate('/');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao resetar: ${message}`);
     } finally {
-      setIsBusy(false);
+      setResetBusy(false);
       setConfirmResetOpen(false);
+    }
+  };
+
+  const handleResetAndDownload = async () => {
+    if (!canSync) {
+      notifier.error('Sync nao configurado.');
+      setConfirmResetDownloadOpen(false);
+      return;
+    }
+    setResetBusy(true);
+    try {
+      await resetLocalData();
+      await syncNowManual();
+      const latest = getSyncState();
+      const message =
+        latest.status === 'error'
+          ? latest.lastError ?? 'Erro ao sincronizar'
+          : 'Sync ok';
+      if (latest.status === 'error') {
+        notifier.error(message);
+      } else {
+        notifier.success(message);
+      }
+      navigate('/');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao baixar do remoto: ${message}`);
+    } finally {
+      setResetBusy(false);
+      setConfirmResetDownloadOpen(false);
     }
   };
 
@@ -226,12 +272,15 @@ export default function SettingsPage() {
 
   const handleIntervalChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const raw = Number(event.target.value);
-    const next = Number.isFinite(raw) ? Math.min(60, Math.max(1, Math.floor(raw))) : syncPrefs.intervalMin;
+    const next = Number.isFinite(raw)
+      ? Math.min(60, Math.max(1, Math.floor(raw)))
+      : syncPrefs.intervalMin;
     setSyncPrefsState((prev) => ({ ...prev, intervalMin: next }));
     setIntervalMin(next);
   };
 
-  const itemCount = payload?.items.length ?? 0;
+  const itemCount = fileInfo?.nodeCount ?? 0;
+  const canSync = Boolean(syncSettings.gistId.trim() && syncSettings.token.trim());
   const syncStatusLabel =
     syncRuntime.status === 'syncing'
       ? 'Sincronizando'
@@ -242,6 +291,36 @@ export default function SettingsPage() {
           : syncRuntime.status === 'error'
             ? 'Erro'
             : 'Aguardando';
+  const buildDate = new Date(BUILD_TIME);
+  const buildTimeLabel = Number.isFinite(buildDate.getTime())
+    ? format(buildDate, 'yyyy-MM-dd HH:mm')
+    : BUILD_TIME;
+  const hostLabel = typeof window !== 'undefined' ? window.location.host : '-';
+  const versionLabel = `v-${GIT_SHA}`;
+
+  const handleReload = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.location.reload();
+  };
+
+  const handleForceReload = async () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if ('serviceWorker' in navigator) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((registration) => registration.unregister()));
+      } catch {
+        // ignore
+      }
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('v', Date.now().toString());
+    window.location.replace(url.toString());
+  };
 
   return (
     <Stack spacing={3}>
@@ -254,10 +333,10 @@ export default function SettingsPage() {
         <CardContent>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              Exporta todos os itens (notas, pastas, tags e links).
+              Exporta o vault completo em JSON (sem token de sync).
             </Typography>
-            <Button variant="contained" onClick={handleExport} disabled={isBusy}>
-              Exportar JSON
+            <Button variant="contained" onClick={handleExport} disabled={isBusy || resetBusy}>
+              Exportar backup (JSON)
             </Button>
           </Stack>
         </CardContent>
@@ -341,21 +420,21 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader title="Restaurar" />
+        <CardHeader title="Importar backup" />
         <CardContent>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
               Selecione um arquivo .json para restaurar seus dados.
             </Typography>
-            <Button variant="outlined" component="label" disabled={isBusy}>
-              Selecionar arquivo
+            <Button variant="outlined" component="label" disabled={isBusy || resetBusy}>
+              Selecionar arquivo .json
               <input type="file" accept=".json" hidden onChange={handleFileChange} />
             </Button>
             {fileName && (
               <Typography variant="body2">Arquivo: {fileName}</Typography>
             )}
             {fileError && <Alert severity="error">{fileError}</Alert>}
-            {payload && !fileError && (
+            {fileInfo && !fileError && (
               <Alert severity="info">
                 Backup valido com {itemCount} item{itemCount === 1 ? '' : 's'}.
               </Alert>
@@ -369,20 +448,20 @@ export default function SettingsPage() {
                 <FormControlLabel
                   value="replace"
                   control={<Radio />}
-                  label="Substituir tudo (recomendado)"
+                  label="Substituir tudo (REPLACE)"
                 />
                 <FormControlLabel
                   value="merge"
                   control={<Radio />}
-                  label="Mesclar (manter existentes)"
+                  label="Mesclar (MERGE)"
                 />
               </RadioGroup>
             </FormControl>
             <Button
               variant="contained"
               color="primary"
-              disabled={!payload || Boolean(fileError) || isBusy}
-              onClick={() => setConfirmImportOpen(true)}
+              disabled={!selectedFile || !fileInfo || Boolean(fileError) || isBusy || resetBusy}
+              onClick={handleImportClick}
             >
               Importar
             </Button>
@@ -395,16 +474,63 @@ export default function SettingsPage() {
         <CardContent>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              Use com cuidado: esta acao apaga todos os dados locais.
+              Use com cuidado: estas acoes apagam dados locais.
             </Typography>
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={() => setConfirmResetOpen(true)}
-              disabled={isBusy}
-            >
-              Resetar banco
-            </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => setConfirmResetOpen(true)}
+                disabled={isBusy || resetBusy}
+              >
+                Resetar dados locais
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={() => setConfirmResetDownloadOpen(true)}
+                disabled={isBusy || resetBusy || !canSync}
+              >
+                Resetar e baixar do remoto
+              </Button>
+            </Stack>
+            {!canSync && (
+              <Typography color="text.secondary" variant="body2">
+                Configure o sync para habilitar o reset com download remoto.
+              </Typography>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader title="Sobre" />
+        <CardContent>
+          <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">
+              Versao: {versionLabel}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Build: {buildTimeLabel}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Ambiente: {MODE}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Host: {hostLabel}
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button variant="outlined" onClick={handleReload}>
+                Recarregar
+              </Button>
+              <Button variant="contained" onClick={handleForceReload}>
+                Forcar atualizacao
+              </Button>
+            </Stack>
+            <Typography variant="body2" color="text.secondary">
+              Se o celular estiver mostrando uma versao antiga, use "Forcar atualizacao" e
+              reinstale o atalho se necessario.
+            </Typography>
           </Stack>
         </CardContent>
       </Card>
@@ -414,9 +540,7 @@ export default function SettingsPage() {
         title="Confirmar importacao"
         description={
           <>
-            {importMode === 'replace'
-              ? 'Isso vai substituir todos os itens atuais.'
-              : 'Isso vai mesclar os itens com base no updatedAt.'}
+            Isso apaga seus dados locais e substitui pelo arquivo. Continuar?
             <br />
             Itens no arquivo: {itemCount}
           </>
@@ -428,13 +552,23 @@ export default function SettingsPage() {
       />
       <ConfirmDialog
         open={confirmResetOpen}
-        title="Confirmar reset"
-        description="Esta acao nao pode ser desfeita."
-        confirmLabel="Resetar"
+        title="Confirmar reset local"
+        description="Isso apaga seus dados locais e nao pode ser desfeito."
+        confirmLabel="Resetar dados"
         confirmColor="error"
         onConfirm={handleReset}
         onClose={() => setConfirmResetOpen(false)}
-        isLoading={isBusy}
+        isLoading={resetBusy}
+      />
+      <ConfirmDialog
+        open={confirmResetDownloadOpen}
+        title="Resetar e baixar do remoto?"
+        description="Isso apaga dados locais e baixa o vault do remoto."
+        confirmLabel="Resetar e baixar"
+        confirmColor="error"
+        onConfirm={handleResetAndDownload}
+        onClose={() => setConfirmResetDownloadOpen(false)}
+        isLoading={resetBusy}
       />
     </Stack>
   );

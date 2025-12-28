@@ -23,10 +23,12 @@ import {
   InfoOutlined,
   Menu as MenuIcon,
   Search,
+  Settings,
 } from '@mui/icons-material';
 
 import { useColorMode } from '../app/ColorModeContext';
 import { getRouteLabelByPathname } from '../app/routes';
+import type { NodeType } from '../data/types';
 import { getSyncState, subscribeSyncState } from '../sync/syncState';
 import { syncNowManual } from '../sync/syncService';
 
@@ -38,6 +40,8 @@ type TopBarProps = {
   onToggleRightPanel: () => void;
   onOpenSearch: () => void;
   onOpenPalette: () => void;
+  onCreate: (type: NodeType) => void | Promise<void>;
+  onOpenSettings: () => void;
 };
 
 export default function TopBar({
@@ -48,6 +52,8 @@ export default function TopBar({
   onToggleRightPanel,
   onOpenSearch,
   onOpenPalette,
+  onCreate,
+  onOpenSettings,
 }: TopBarProps) {
   const { mode, toggleColorMode } = useColorMode();
   const location = useLocation();
@@ -124,19 +130,46 @@ export default function TopBar({
         <Typography variant="h6" component="div" sx={{ flexGrow: 1, whiteSpace: 'nowrap' }}>
           {currentLabel}
         </Typography>
-        <Button
-          color="inherit"
-          startIcon={<Add />}
-          onClick={handleMenuOpen}
-          aria-controls={menuOpen ? 'create-menu' : undefined}
-          aria-haspopup="true"
-          aria-expanded={menuOpen ? 'true' : undefined}
-        >
-          Criar
-        </Button>
+        {isMobile ? (
+          <IconButton
+            color="inherit"
+            onClick={handleMenuOpen}
+            aria-label="Criar"
+            aria-controls={menuOpen ? 'create-menu' : undefined}
+            aria-haspopup="true"
+            aria-expanded={menuOpen ? 'true' : undefined}
+          >
+            <Add />
+          </IconButton>
+        ) : (
+          <Button
+            color="inherit"
+            startIcon={<Add />}
+            onClick={handleMenuOpen}
+            aria-controls={menuOpen ? 'create-menu' : undefined}
+            aria-haspopup="true"
+            aria-expanded={menuOpen ? 'true' : undefined}
+          >
+            Criar
+          </Button>
+        )}
         <Menu id="create-menu" anchorEl={anchorEl} open={menuOpen} onClose={handleMenuClose}>
-          <MenuItem onClick={handleMenuClose}>Nota</MenuItem>
-          <MenuItem onClick={handleMenuClose}>Pasta</MenuItem>
+          <MenuItem
+            onClick={() => {
+              handleMenuClose();
+              void onCreate('note');
+            }}
+          >
+            Nota
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              handleMenuClose();
+              void onCreate('folder');
+            }}
+          >
+            Pasta
+          </MenuItem>
         </Menu>
         <IconButton color="inherit" onClick={onOpenSearch} aria-label="Buscar">
           <Search />
@@ -161,6 +194,9 @@ export default function TopBar({
         </Tooltip>
         <IconButton color="inherit" onClick={toggleColorMode} aria-label="Alternar tema">
           {mode === 'dark' ? <Brightness7 /> : <Brightness4 />}
+        </IconButton>
+        <IconButton color="inherit" onClick={onOpenSettings} aria-label="Configuracoes">
+          <Settings />
         </IconButton>
         <IconButton
           color="inherit"

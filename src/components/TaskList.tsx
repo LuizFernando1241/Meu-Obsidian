@@ -64,6 +64,11 @@ export default function TaskList({
                 size="small"
                 onClick={() => onOpenNote(task.noteId, task.blockId)}
               />
+              {task.notePath && (
+                <Typography variant="caption" color="text.secondary">
+                  {task.notePath}
+                </Typography>
+              )}
               <Box sx={{ minWidth: { xs: '100%', sm: 160 } }}>
                 <TextField
                   label="Vencimento"

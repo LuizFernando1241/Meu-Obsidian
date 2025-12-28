@@ -10,20 +10,27 @@ import { setChecklistDue, toggleChecklist } from '../data/repo';
 import type { NoteNode } from '../data/types';
 import { getTodayISO } from '../tasks/date';
 import { buildTaskIndex, type IndexedTask } from '../tasks/taskIndex';
+import { getTaskNotePath } from '../tasks/taskPath';
+import { buildPathCache } from '../vault/pathCache';
 
 export default function OverdueViewPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
 
-  const notes =
-    useLiveQuery(
-      () => db.items.where('nodeType').equals('note').toArray(),
-      [],
-    ) ?? [];
+  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const notes = React.useMemo(
+    () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
+    [nodes],
+  );
+  const pathCache = React.useMemo(() => buildPathCache(nodes), [nodes]);
 
   const tasks = React.useMemo(
-    () => buildTaskIndex(notes as NoteNode[]),
-    [notes],
+    () =>
+      buildTaskIndex(notes as NoteNode[]).map((task) => ({
+        ...task,
+        notePath: getTaskNotePath(pathCache.get(task.noteId)),
+      })),
+    [notes, pathCache],
   );
 
   const todayISO = getTodayISO();

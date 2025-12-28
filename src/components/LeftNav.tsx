@@ -16,6 +16,7 @@ import {
 } from '@mui/icons-material';
 import { NavLink } from 'react-router-dom';
 
+import { GIT_SHA } from '../app/buildInfo';
 import { NAV_ROUTES } from '../app/routes';
 import VaultExplorer from './VaultExplorer';
 
@@ -30,6 +31,7 @@ type LeftNavProps = {
 };
 
 const navItems = NAV_ROUTES.filter((route) => route.showInNav !== false);
+const versionLabel = `v-${GIT_SHA}`;
 
 export default function LeftNav({
   isMobile,
@@ -141,6 +143,27 @@ export default function LeftNav({
           </List>
         </>
       )}
+      <Divider />
+      <Box
+        sx={{
+          px: collapsed ? 1.5 : 2.5,
+          py: 1,
+          display: 'flex',
+          justifyContent: collapsed ? 'center' : 'flex-start',
+        }}
+      >
+        {collapsed ? (
+          <Tooltip title={versionLabel} placement="right">
+            <Typography variant="caption" color="text.secondary">
+              v
+            </Typography>
+          </Tooltip>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            {versionLabel}
+          </Typography>
+        )}
+      </Box>
     </Box>
   );
 

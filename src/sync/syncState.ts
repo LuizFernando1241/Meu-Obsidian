@@ -5,6 +5,7 @@ export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
 export type SyncRuntimeState = {
   status: SyncStatus;
   lastSyncAt?: number;
+  lastSuccessfulSyncAt?: number;
   lastError?: string;
   dirty: boolean;
 };
@@ -17,6 +18,7 @@ type SyncPrefs = {
 const AUTO_SYNC_KEY = 'mf_sync_auto';
 const INTERVAL_KEY = 'mf_sync_interval_min';
 const LAST_SYNC_KEY = 'mf_sync_last_at';
+const LAST_SUCCESS_KEY = 'mf_sync_last_success_at';
 const SETTINGS_KEY = 'mf_sync_settings';
 
 const DEFAULT_PREFS: SyncPrefs = {
@@ -75,6 +77,18 @@ export const getLastSyncAt = (): number | undefined => {
   return Number.isFinite(value) ? value : undefined;
 };
 
+export const getLastSuccessfulSyncAt = (): number | undefined => {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const raw = window.localStorage.getItem(LAST_SUCCESS_KEY);
+  if (!raw) {
+    return getLastSyncAt();
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+};
+
 export const setLastSyncAt = (value?: number) => {
   if (typeof window === 'undefined') {
     return;
@@ -86,8 +100,25 @@ export const setLastSyncAt = (value?: number) => {
   window.localStorage.setItem(LAST_SYNC_KEY, String(value));
 };
 
+export const setLastSuccessfulSyncAt = (value?: number) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (!value) {
+    window.localStorage.removeItem(LAST_SUCCESS_KEY);
+    return;
+  }
+  window.localStorage.setItem(LAST_SUCCESS_KEY, String(value));
+};
+
 if (runtimeState.lastSyncAt === undefined) {
-  runtimeState = { ...runtimeState, lastSyncAt: getLastSyncAt() };
+  const lastSyncAt = getLastSyncAt();
+  const lastSuccessfulSyncAt = getLastSuccessfulSyncAt();
+  runtimeState = {
+    ...runtimeState,
+    lastSyncAt,
+    lastSuccessfulSyncAt,
+  };
 }
 
 export const getStoredSyncSettings = (): SyncSettings | null => {

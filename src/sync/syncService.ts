@@ -5,7 +5,9 @@ import {
   getSyncPrefs,
   getSyncState,
   getStoredSyncSettings,
+  getLastSuccessfulSyncAt,
   setLastSyncAt,
+  setLastSuccessfulSyncAt,
   setSyncPrefs,
   setSyncState,
 } from './syncState';
@@ -57,9 +59,11 @@ const runSync = async (reason: string) => {
         status: 'synced',
         dirty: false,
         lastSyncAt: now,
+        lastSuccessfulSyncAt: now,
         lastError: undefined,
       });
       setLastSyncAt(now);
+      setLastSuccessfulSyncAt(now);
     } else {
       updateStatus({
         status: 'error',
@@ -111,8 +115,9 @@ export const initAutoSync = (provider?: () => SyncSettings | null) => {
     initialized = true;
 
     const lastSyncAt = getLastSyncAt();
-    if (lastSyncAt) {
-      updateStatus({ lastSyncAt });
+    const lastSuccessfulSyncAt = getLastSuccessfulSyncAt();
+    if (lastSyncAt || lastSuccessfulSyncAt) {
+      updateStatus({ lastSyncAt, lastSuccessfulSyncAt });
     }
 
     if (typeof document !== 'undefined') {

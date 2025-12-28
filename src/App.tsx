@@ -4,6 +4,7 @@ import { EXTRA_ROUTES, NAV_ROUTES, type AppRoute } from './app/routes';
 import AppShell from './components/AppShell';
 import DebugPage from './pages/DebugPage';
 import GraphPage from './pages/GraphPage';
+import HelpPage from './pages/HelpPage';
 import Home from './pages/Home';
 import ItemPage from './pages/ItemPage';
 import NotesPage from './pages/NotesPage';
@@ -39,6 +40,7 @@ export default function App() {
           <Route path={routesByKey.notes.path} element={<NotesPage />} />
           <Route path={routesByKey.tags.path} element={<TagsIndexPage />} />
           <Route path={routesByKey.graph.path} element={<GraphPage />} />
+          <Route path={routesByKey.help.path} element={<HelpPage />} />
           <Route path={routesByKey.tag.path} element={<TagPage />} />
           <Route path={routesByKey.item.path} element={<ItemPage />} />
           <Route path={routesByKey.settings.path} element={<SettingsPage />} />

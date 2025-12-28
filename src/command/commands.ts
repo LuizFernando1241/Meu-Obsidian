@@ -22,6 +22,8 @@ export const getStaticCommands = () => ({
     { kind: 'nav', path: '/notes', title: 'Notas' },
     { kind: 'nav', path: '/tags', title: 'Tags' },
     { kind: 'nav', path: '/graph', title: 'Grafo' },
+    { kind: 'nav', path: '/help', title: 'Ajuda / Atalhos' },
+    { kind: 'nav', path: '/help#shortcuts', title: 'Mostrar atalhos' },
     { kind: 'nav', path: '/settings', title: 'Configuracoes' },
   ] as Command[],
   create: [
