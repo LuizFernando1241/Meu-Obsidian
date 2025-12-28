@@ -13,9 +13,7 @@ import {
 } from '@mui/material';
 import {
   Add,
-  AccessTime,
   Description,
-  FlashOn,
   Folder,
   HelpOutline,
   Home,
@@ -62,10 +60,6 @@ const navIcon = (path: string) => {
       return <Home fontSize="small" />;
     case '/tasks':
       return <TaskAlt fontSize="small" />;
-    case '/quick-notes':
-      return <FlashOn fontSize="small" />;
-    case '/recent':
-      return <AccessTime fontSize="small" />;
     case '/notes':
       return <Description fontSize="small" />;
     case '/tags':

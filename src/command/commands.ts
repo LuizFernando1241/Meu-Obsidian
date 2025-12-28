@@ -17,8 +17,6 @@ export const getStaticCommands = () => ({
   nav: [
     { kind: 'nav', path: '/', title: 'Home' },
     { kind: 'nav', path: '/tasks', title: 'Tarefas' },
-    { kind: 'nav', path: '/quick-notes', title: 'Quick Notes' },
-    { kind: 'nav', path: '/recent', title: 'Recentes' },
     { kind: 'nav', path: '/notes', title: 'Notas' },
     { kind: 'nav', path: '/tags', title: 'Tags' },
     { kind: 'nav', path: '/graph', title: 'Grafo' },
@@ -38,12 +36,6 @@ export const getStaticCommands = () => ({
       nodeType: 'folder',
       title: 'Nova pasta (na pasta atual)',
       target: 'current',
-    },
-    {
-      kind: 'create',
-      nodeType: 'note',
-      title: 'Nota rapida (raiz)',
-      target: 'root',
     },
   ] as Command[],
 });

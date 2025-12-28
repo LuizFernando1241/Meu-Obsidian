@@ -1,9 +1,7 @@
 import type { SvgIconComponent } from '@mui/icons-material';
 import {
-  AccessTimeOutlined,
   CheckBoxOutlined,
   EventBusyOutlined,
-  FlashOnOutlined,
   HelpOutline,
   HomeOutlined,
   HubOutlined,
@@ -26,20 +24,6 @@ export const NAV_ROUTES: AppRoute[] = [
   { key: 'tasks', label: 'Tarefas', path: '/tasks', icon: CheckBoxOutlined, showInNav: true },
   { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
   { key: 'overdue', label: 'Atrasadas', path: '/overdue', icon: EventBusyOutlined, showInNav: true },
-  {
-    key: 'quick-notes',
-    label: 'Notas rapidas',
-    path: '/quick-notes',
-    icon: FlashOnOutlined,
-    showInNav: true,
-  },
-  {
-    key: 'recent',
-    label: 'Recentes',
-    path: '/recent',
-    icon: AccessTimeOutlined,
-    showInNav: true,
-  },
   { key: 'notes', label: 'Notas', path: '/notes', icon: NoteOutlined, showInNav: true },
   { key: 'tags', label: 'Tags', path: '/tags', icon: LocalOfferOutlined, showInNav: true },
   { key: 'graph', label: 'Grafo', path: '/graph', icon: HubOutlined, showInNav: true },

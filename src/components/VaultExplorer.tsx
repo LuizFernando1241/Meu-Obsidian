@@ -140,19 +140,6 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
     }
   };
 
-  const handleCreateQuickNote = async () => {
-    try {
-      const created = await createNote({ parentId: undefined });
-      notifier.success('Nota rapida criada');
-      handleNavigate(created.id);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao criar: ${message}`);
-    } finally {
-      setRootMenuAnchor(null);
-    }
-  };
-
   const toggleExpanded = (event: React.MouseEvent<HTMLButtonElement>, id: string) => {
     event.stopPropagation();
     setExpandedIds((prev) =>
@@ -377,7 +364,6 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
         >
           Nova pasta
         </MenuItem>
-        <MenuItem onClick={handleCreateQuickNote}>Nota rapida</MenuItem>
       </Menu>
 
       <RenameDialog

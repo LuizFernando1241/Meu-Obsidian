@@ -10,8 +10,6 @@ import ItemPage from './pages/ItemPage';
 import NotesPage from './pages/NotesPage';
 import NotFoundPage from './pages/NotFoundPage';
 import OverdueViewPage from './pages/OverdueViewPage';
-import QuickNotesPage from './pages/QuickNotesPage';
-import RecentPage from './pages/RecentPage';
 import SettingsPage from './pages/SettingsPage';
 import TagPage from './pages/TagPage';
 import TagsIndexPage from './pages/TagsIndexPage';
@@ -35,8 +33,6 @@ export default function App() {
           <Route path={routesByKey.tasks.path} element={<TasksViewPage />} />
           <Route path={routesByKey.today.path} element={<TodayViewPage />} />
           <Route path={routesByKey.overdue.path} element={<OverdueViewPage />} />
-          <Route path={routesByKey['quick-notes'].path} element={<QuickNotesPage />} />
-          <Route path={routesByKey.recent.path} element={<RecentPage />} />
           <Route path={routesByKey.notes.path} element={<NotesPage />} />
           <Route path={routesByKey.tags.path} element={<TagsIndexPage />} />
           <Route path={routesByKey.graph.path} element={<GraphPage />} />
