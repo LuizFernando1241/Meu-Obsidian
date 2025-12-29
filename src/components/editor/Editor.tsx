@@ -67,6 +67,88 @@ const isBlockType = (value: string | undefined): value is BlockType =>
 
 const isTextualBlock = (value: BlockType) => TEXTUAL_BLOCK_TYPES.includes(value);
 
+type ShortcutMatch = {
+  type: BlockType;
+  text: string;
+  checked?: boolean;
+};
+
+const getShortcutMatch = (text: string): ShortcutMatch | null => {
+  const trimmed = text.trim();
+  if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+    return { type: 'divider', text: '' };
+  }
+
+  const codeMatch = text.match(/^```(?:\s+)?(.*)$/);
+  if (codeMatch) {
+    return { type: 'code', text: codeMatch[1] ?? '' };
+  }
+
+  const atChecklistMatch = text.match(/^@\s*\[( |x|X)\]\s*(.*)$/);
+  if (atChecklistMatch) {
+    return {
+      type: 'checklist',
+      text: atChecklistMatch[2] ?? '',
+      checked: atChecklistMatch[1].toLowerCase() === 'x',
+    };
+  }
+
+  const atChecklistSimpleMatch = text.match(/^@\s+(.*)$/);
+  if (atChecklistSimpleMatch) {
+    return {
+      type: 'checklist',
+      text: atChecklistSimpleMatch[1] ?? '',
+      checked: false,
+    };
+  }
+
+  const checklistMatch = text.match(/^[-*]\s*\[( |x|X)\]\s*(.*)$/);
+  if (checklistMatch) {
+    return {
+      type: 'checklist',
+      text: checklistMatch[2] ?? '',
+      checked: checklistMatch[1].toLowerCase() === 'x',
+    };
+  }
+
+  const inlineChecklistMatch = text.match(/^\[( |x|X)\]\s*(.*)$/);
+  if (inlineChecklistMatch) {
+    return {
+      type: 'checklist',
+      text: inlineChecklistMatch[2] ?? '',
+      checked: inlineChecklistMatch[1].toLowerCase() === 'x',
+    };
+  }
+
+  const headingMatch = text.match(/^(#{1,3})(\s+)?(.*)$/);
+  if (headingMatch) {
+    const level = headingMatch[1].length;
+    const remainder = headingMatch[3] ?? '';
+    if (!headingMatch[2] && remainder.length === 0) {
+      return null;
+    }
+    const type = level === 1 ? 'h1' : level === 2 ? 'h2' : 'h3';
+    return { type, text: remainder };
+  }
+
+  const bulletMatch = text.match(/^[-*]\s+(.*)$/);
+  if (bulletMatch) {
+    return { type: 'bullet', text: bulletMatch[1] ?? '' };
+  }
+
+  const numberedMatch = text.match(/^\d+\.\s+(.*)$/);
+  if (numberedMatch) {
+    return { type: 'numbered', text: numberedMatch[1] ?? '' };
+  }
+
+  const calloutMatch = text.match(/^>\s*(.*)$/);
+  if (calloutMatch) {
+    return { type: 'callout', text: calloutMatch[1] ?? '' };
+  }
+
+  return null;
+};
+
 const createEmptyBlock = (): Block => ({
   id: uuidv4(),
   type: 'paragraph',
@@ -566,6 +648,83 @@ export default function Editor({
         onChecklistToggleTask(current.taskId, patch.checked);
       }
       if (typeof nextPatch.text === 'string') {
+        const currentType = isBlockType(current?.type) ? current?.type : 'paragraph';
+        const shortcutMatch =
+          currentType === 'paragraph' ? getShortcutMatch(nextPatch.text) : null;
+
+        if (current && shortcutMatch) {
+          if (slashState?.blockId === blockId) {
+            setSlashState(null);
+          }
+          if (linkState?.blockId === blockId) {
+            setLinkState(null);
+            setLinkResults([]);
+          }
+          let nextFocus: FocusTarget | null = null;
+          let insertedBlockId: string | null = null;
+
+          updateBlocks((prev) => {
+            const index = prev.findIndex((block) => block.id === blockId);
+            if (index === -1) {
+              return prev;
+            }
+            const target = prev[index];
+            const nextType = shortcutMatch.type;
+            const nextText = shortcutMatch.text;
+            const nextBlock: Block = {
+              ...target,
+              type: nextType,
+              text: nextType === 'divider' ? '' : nextText,
+            };
+
+            if (nextType === 'checklist') {
+              nextBlock.checked = shortcutMatch.checked ?? target.checked ?? false;
+              if (!nextBlock.createdAt) {
+                nextBlock.createdAt = Date.now();
+              }
+            } else {
+              nextBlock.checked = undefined;
+              nextBlock.due = undefined;
+              nextBlock.doneAt = undefined;
+              nextBlock.priority = undefined;
+              nextBlock.tags = undefined;
+              nextBlock.createdAt = undefined;
+              nextBlock.taskId = undefined;
+              nextBlock.meta = undefined;
+            }
+
+            if (nextType === 'code') {
+              nextBlock.language = target.language;
+            } else {
+              nextBlock.language = undefined;
+            }
+
+            const next = [...prev];
+            next[index] = nextBlock;
+
+            if (nextType === 'divider' && index === prev.length - 1) {
+              const newBlock = createEmptyBlock();
+              insertedBlockId = newBlock.id;
+              next.push(newBlock);
+            }
+
+            if (nextType === 'divider') {
+              const targetId =
+                index < prev.length - 1 ? prev[index + 1].id : insertedBlockId ?? target.id;
+              nextFocus = { id: targetId, position: 'start' };
+            } else {
+              nextFocus = { id: target.id, position: 'end' };
+            }
+
+            return next;
+          }, 'structural');
+
+          if (nextFocus) {
+            setFocusTarget(nextFocus);
+          }
+          return;
+        }
+
         updateSlashState(blockId, nextPatch.text);
         updateLinkState(blockId, nextPatch.text, meta);
       }
@@ -579,7 +738,14 @@ export default function Editor({
         mode,
       );
     },
-    [onChecklistToggleTask, updateBlocks, updateSlashState, updateLinkState],
+    [
+      linkState,
+      onChecklistToggleTask,
+      slashState,
+      updateBlocks,
+      updateLinkState,
+      updateSlashState,
+    ],
   );
 
   const handleBlockPaste = React.useCallback(
