@@ -84,7 +84,7 @@ const getSyncHint = (message: string) => {
   if (normalized.includes('network') || normalized.includes('offline') || normalized.includes('failed to fetch')) {
     return 'Parece que voce esta offline.';
   }
-  return 'Revise suas configuracoes de sync.';
+  return 'Revise suas configuracoes de sincronizacao.';
 };
 
 export default function TopBar({
@@ -260,7 +260,7 @@ export default function TopBar({
               void onCreate('note');
             }}
           >
-            Nota
+            Criar nota
           </MenuItem>
           <MenuItem
             onClick={() => {
@@ -268,7 +268,7 @@ export default function TopBar({
               void onCreate('folder');
             }}
           >
-            Pasta
+            Criar pasta
           </MenuItem>
         </Menu>
         <IconButton color="inherit" onClick={onOpenSearch} aria-label="Buscar">
@@ -288,7 +288,11 @@ export default function TopBar({
             </>
           }
         >
-          <IconButton color="inherit" onClick={() => void syncNowManual()} aria-label="Sync agora">
+          <IconButton
+            color="inherit"
+            onClick={() => void syncNowManual()}
+            aria-label="Sincronizar agora"
+          >
             {statusIcon}
           </IconButton>
         </Tooltip>

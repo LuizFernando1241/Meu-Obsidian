@@ -13,7 +13,7 @@ export default function NotFoundPage() {
         A rota solicitada nao existe ou foi movida.
       </Typography>
       <Button variant="contained" onClick={() => navigate('/')}>
-        Ir para Home
+        Ir para Inicio
       </Button>
     </Stack>
   );

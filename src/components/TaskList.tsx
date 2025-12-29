@@ -23,6 +23,7 @@ import { AccessTime } from '@mui/icons-material';
 
 import type { IndexedTask } from '../tasks/taskIndex';
 import { addDaysISO, getTodayISO } from '../tasks/date';
+import DateField from './DateField';
 import VirtualList from './VirtualList';
 
 type TaskListProps = {
@@ -43,6 +44,14 @@ type TaskListProps = {
 
 const formatText = (text: string) => (text.trim() ? text : 'Checklist');
 const VIRTUAL_THRESHOLD = 100;
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  open: 'Aberta',
+  doing: 'Em andamento',
+  waiting: 'Aguardando',
+};
+
+const formatTaskStatus = (value: string) => TASK_STATUS_LABELS[value] ?? value;
 
 const getListHeight = () => {
   if (typeof window === 'undefined') {
@@ -178,7 +187,7 @@ export default function TaskList({
               <Chip size="small" label={task.priority} variant="outlined" />
             )}
             {!showMetaControls && task.status && task.status !== 'open' && (
-              <Chip size="small" label={task.status} variant="outlined" />
+              <Chip size="small" label={formatTaskStatus(task.status)} variant="outlined" />
             )}
             {!showMetaControls && task.recurrence && (
               <Chip size="small" label={task.recurrence} variant="outlined" />
@@ -186,30 +195,25 @@ export default function TaskList({
             {task.snoozedUntil && (
               <Chip
                 size="small"
-                label={`Snoozed ate ${task.snoozedUntil}`}
+                label={`Adiada ate ${task.snoozedUntil}`}
                 variant="outlined"
               />
             )}
             <Box sx={{ minWidth: { xs: '100%', sm: 160 } }}>
-              <TextField
+              <DateField
                 label="Vencimento"
-                type="date"
                 size="small"
                 value={task.due ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  onUpdateDue(task, value ? value : null);
-                }}
-                InputLabelProps={{ shrink: true }}
+                onCommit={(next) => onUpdateDue(task, next)}
                 fullWidth
               />
             </Box>
             {onSnooze && (
-              <Tooltip title="Snooze">
+              <Tooltip title="Adiar">
                 <IconButton
                   size="small"
                   onClick={(event) => handleOpenSnoozeMenu(task, event.currentTarget)}
-                  aria-label="Snooze"
+                  aria-label="Adiar"
                 >
                   <AccessTime fontSize="small" />
                 </IconButton>
@@ -231,9 +235,9 @@ export default function TaskList({
                     }
                     fullWidth
                   >
-                    <MenuItem value="open">open</MenuItem>
-                    <MenuItem value="doing">doing</MenuItem>
-                    <MenuItem value="waiting">waiting</MenuItem>
+                    <MenuItem value="open">Aberta</MenuItem>
+                    <MenuItem value="doing">Em andamento</MenuItem>
+                    <MenuItem value="waiting">Aguardando</MenuItem>
                   </TextField>
                 </Box>
                 <Box sx={{ minWidth: { xs: '100%', sm: 140 } }}>
@@ -314,22 +318,20 @@ export default function TaskList({
         open={Boolean(snoozeAnchor)}
         onClose={handleCloseSnoozeMenu}
       >
-        <MenuItem onClick={() => handleSnoozeDays(1)}>Snooze +1 dia</MenuItem>
-        <MenuItem onClick={() => handleSnoozeDays(3)}>Snooze +3 dias</MenuItem>
-        <MenuItem onClick={() => handleSnoozeDays(7)}>Snooze +7 dias</MenuItem>
+        <MenuItem onClick={() => handleSnoozeDays(1)}>Adiar +1 dia</MenuItem>
+        <MenuItem onClick={() => handleSnoozeDays(3)}>Adiar +3 dias</MenuItem>
+        <MenuItem onClick={() => handleSnoozeDays(7)}>Adiar +7 dias</MenuItem>
         <MenuItem onClick={handleOpenSnoozeDialog}>Escolher data...</MenuItem>
         {snoozeTask?.snoozedUntil && (
-          <MenuItem onClick={handleClearSnooze}>Remover snooze</MenuItem>
+          <MenuItem onClick={handleClearSnooze}>Remover adiamento</MenuItem>
         )}
       </Menu>
       <Dialog open={snoozeDialogOpen} onClose={() => setSnoozeDialogOpen(false)}>
-        <DialogTitle>Snooze ate</DialogTitle>
+        <DialogTitle>Adiar ate</DialogTitle>
         <DialogContent>
-          <TextField
-            type="date"
+          <DateField
             value={snoozeDate}
-            onChange={(event) => setSnoozeDate(event.target.value)}
-            InputLabelProps={{ shrink: true }}
+            onCommit={(next) => setSnoozeDate(next ?? '')}
             fullWidth
             sx={{ mt: 1 }}
           />

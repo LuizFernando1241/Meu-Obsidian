@@ -222,7 +222,7 @@ export default function TasksViewPage() {
       await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir snooze: ${message}`);
+      notifier.error(`Erro ao definir adiamento: ${message}`);
     }
   };
 
@@ -231,7 +231,7 @@ export default function TasksViewPage() {
       await clearChecklistSnooze(task.noteId, task.blockId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao limpar snooze: ${message}`);
+      notifier.error(`Erro ao limpar adiamento: ${message}`);
     }
   };
 
@@ -273,9 +273,9 @@ export default function TasksViewPage() {
           sx={{ minWidth: 160 }}
         >
           <MenuItem value="all">Todos</MenuItem>
-          <MenuItem value="open">open</MenuItem>
-          <MenuItem value="doing">doing</MenuItem>
-          <MenuItem value="waiting">waiting</MenuItem>
+          <MenuItem value="open">Aberta</MenuItem>
+          <MenuItem value="doing">Em andamento</MenuItem>
+          <MenuItem value="waiting">Aguardando</MenuItem>
         </TextField>
         <TextField
           select
@@ -321,7 +321,7 @@ export default function TasksViewPage() {
               onChange={(event) => setIncludeSnoozed(event.target.checked)}
             />
           }
-          label="Incluir snoozed"
+          label="Incluir adiadas"
         />
         <FormControlLabel
           control={

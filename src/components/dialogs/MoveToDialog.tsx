@@ -123,7 +123,7 @@ export default function MoveToDialog({
             <ListItemIcon>
               <HomeOutlined fontSize="small" />
             </ListItemIcon>
-            <ListItemText primary="Raiz (Vault)" />
+            <ListItemText primary="Raiz (Cofre)" />
           </ListItemButton>
           {folders.length === 0 ? (
             <ListItem>

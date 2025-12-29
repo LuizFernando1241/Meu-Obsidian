@@ -12,6 +12,7 @@ import { getGlobalSchema } from '../data/repo';
 import { normalizeProps } from '../data/propsNormalize';
 import { buildDefaultSchema } from '../data/schemaDefaults';
 import type { Node, PropertyDef, PropertySchema } from '../data/types';
+import DateField from './DateField';
 import { useNotifier } from './Notifier';
 
 type PropertiesEditorProps = {
@@ -36,6 +37,29 @@ const getMultiSelectValue = (props: Record<string, unknown> | undefined, key: st
   Array.isArray(props?.[key])
     ? (props?.[key] as unknown[]).filter((entry): entry is string => typeof entry === 'string')
     : [];
+
+const STATUS_LABELS: Record<string, string> = {
+  idea: 'Ideia',
+  active: 'Ativo',
+  waiting: 'Aguardando',
+  done: 'Concluido',
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Baixa',
+  medium: 'Media',
+  high: 'Alta',
+};
+
+const formatOptionLabel = (key: string, value: string) => {
+  if (key === 'status') {
+    return STATUS_LABELS[value] ?? value;
+  }
+  if (key === 'priority') {
+    return PRIORITY_LABELS[value] ?? value;
+  }
+  return value;
+};
 
 export const mergeNodeProps = (
   current: Record<string, unknown> | undefined,
@@ -116,7 +140,7 @@ export default function PropertiesEditor({
           <MenuItem value="">Sem valor</MenuItem>
           {(property.options ?? []).map((option) => (
             <MenuItem key={option} value={option}>
-              {option}
+              {formatOptionLabel(key, option)}
             </MenuItem>
           ))}
         </TextField>
@@ -145,7 +169,7 @@ export default function PropertiesEditor({
         >
           {(property.options ?? []).map((option) => (
             <MenuItem key={option} value={option}>
-              {option}
+              {formatOptionLabel(key, option)}
             </MenuItem>
           ))}
         </TextField>
@@ -155,14 +179,12 @@ export default function PropertiesEditor({
     if (property.type === 'date') {
       const value = getStringValue(props as Record<string, unknown>, key);
       return (
-        <TextField
+        <DateField
           key={key}
           label={property.name}
-          type="date"
           size={size}
           value={value}
-          onChange={(event) => handleChange({ [key]: event.target.value || undefined })}
-          InputLabelProps={{ shrink: true }}
+          onCommit={(next) => handleChange({ [key]: next || undefined })}
           fullWidth
         />
       );

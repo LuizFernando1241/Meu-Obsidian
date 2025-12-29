@@ -74,14 +74,20 @@ export default function NotesPage() {
 
   return (
     <Stack spacing={2}>
-      <ListToolbar title="Notas" search={search} onSearchChange={setSearch} onCreate={handleCreate} />
+      <ListToolbar
+        title="Notas"
+        search={search}
+        onSearchChange={setSearch}
+        onCreate={handleCreate}
+        createLabel="Criar nota"
+      />
       {isSeeding && <LoadingState message="Carregando dados..." />}
       {filteredItems.length === 0 ? (
         <EmptyState
           icon={<NoteOutlined />}
           title="Nenhuma nota"
           description="Crie a primeira nota para comecar."
-          actionLabel="Nova nota"
+          actionLabel="Criar nota"
           onAction={handleCreate}
         />
       ) : (

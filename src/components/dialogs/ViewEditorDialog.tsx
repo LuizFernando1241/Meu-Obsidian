@@ -22,6 +22,7 @@ import { buildDefaultSchema } from '../../data/schemaDefaults';
 import type { FolderNode, SavedView } from '../../data/types';
 import { buildPathCache } from '../../vault/pathCache';
 import { useIsMobile } from '../../app/useIsMobile';
+import DateField from '../DateField';
 
 type ViewEditorDialogProps = {
   open: boolean;
@@ -36,6 +37,22 @@ const TYPE_OPTIONS = [
   { value: 'note', label: 'Notas' },
   { value: 'folder', label: 'Pastas' },
 ];
+
+const STATUS_LABELS: Record<string, string> = {
+  idea: 'Ideia',
+  active: 'Ativo',
+  waiting: 'Aguardando',
+  done: 'Concluido',
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Baixa',
+  medium: 'Media',
+  high: 'Alta',
+};
+
+const formatStatusLabel = (value: string) => STATUS_LABELS[value] ?? value;
+const formatPriorityLabel = (value: string) => PRIORITY_LABELS[value] ?? value;
 
 const parseList = (raw: string) =>
   raw
@@ -138,7 +155,7 @@ export default function ViewEditorDialog({
     };
 
   const handleSave = () => {
-    const trimmedName = name.trim() || 'Nova view';
+    const trimmedName = name.trim() || 'Nova visao';
     const tags = parseList(tagsInput);
     const updatedDaysValue = Number(updatedSinceDays);
     const updatedDays =
@@ -197,7 +214,7 @@ export default function ViewEditorDialog({
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
-      <DialogTitle>{mode === 'edit' ? 'Editar view' : 'Nova view'}</DialogTitle>
+      <DialogTitle>{mode === 'edit' ? 'Editar visao' : 'Criar visao'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField
@@ -243,7 +260,7 @@ export default function ViewEditorDialog({
             </TextField>
           </Stack>
           <TextField
-            label="Path prefix"
+            label="Prefixo do caminho"
             value={pathPrefix}
             onChange={(event) => setPathPrefix(event.target.value)}
             placeholder="Ex: Trabalho/Projetos"
@@ -267,7 +284,7 @@ export default function ViewEditorDialog({
             >
               {statusOptions.map((option) => (
                 <MenuItem key={option} value={option}>
-                  {option}
+                  {formatStatusLabel(option)}
                 </MenuItem>
               ))}
             </TextField>
@@ -281,7 +298,7 @@ export default function ViewEditorDialog({
             >
               {priorityOptions.map((option) => (
                 <MenuItem key={option} value={option}>
-                  {option}
+                  {formatPriorityLabel(option)}
                 </MenuItem>
               ))}
             </TextField>
@@ -298,20 +315,16 @@ export default function ViewEditorDialog({
           <Stack spacing={1}>
             <Typography variant="subtitle2">Vencimento</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <TextField
+              <DateField
                 label="De"
-                type="date"
                 value={dueFrom}
-                onChange={(event) => setDueFrom(event.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onCommit={(next) => setDueFrom(next ?? '')}
                 fullWidth
               />
-              <TextField
+              <DateField
                 label="Ate"
-                type="date"
                 value={dueTo}
-                onChange={(event) => setDueTo(event.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onCommit={(next) => setDueTo(next ?? '')}
                 fullWidth
               />
             </Stack>
@@ -345,7 +358,7 @@ export default function ViewEditorDialog({
               <MenuItem value="updatedAt">Atualizacao</MenuItem>
               <MenuItem value="title">Titulo</MenuItem>
               <MenuItem value="type">Tipo</MenuItem>
-              <MenuItem value="path">Path</MenuItem>
+              <MenuItem value="path">Caminho</MenuItem>
               <MenuItem value="status">Status</MenuItem>
               <MenuItem value="due">Vencimento</MenuItem>
               <MenuItem value="priority">Prioridade</MenuItem>
@@ -358,8 +371,8 @@ export default function ViewEditorDialog({
               fullWidth
               disabled={!sortBy}
             >
-              <MenuItem value="asc">Asc</MenuItem>
-              <MenuItem value="desc">Desc</MenuItem>
+              <MenuItem value="asc">Crescente</MenuItem>
+              <MenuItem value="desc">Decrescente</MenuItem>
             </TextField>
           </Stack>
         </Stack>

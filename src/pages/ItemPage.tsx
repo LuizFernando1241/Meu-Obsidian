@@ -964,7 +964,7 @@ export default function ItemPage() {
               <IconButton
                 size="small"
                 onClick={handleTogglePreview}
-                aria-label={isPreview ? 'Editar' : 'Preview'}
+                aria-label={isPreview ? 'Editar' : 'Visualizar'}
               >
                 {isPreview ? <Edit /> : <Visibility />}
               </IconButton>

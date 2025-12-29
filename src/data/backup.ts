@@ -240,7 +240,7 @@ const normalizeView = (value: unknown, index: number): SavedView | null => {
   const name =
     typeof value.name === 'string' && value.name.trim()
       ? value.name.trim()
-      : `View ${index + 1}`;
+      : `Visao ${index + 1}`;
   const query = normalizeViewQuery(value.query);
   const sort = normalizeViewSort(value.sort);
   const displayMode =

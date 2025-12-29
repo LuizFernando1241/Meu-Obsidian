@@ -136,7 +136,7 @@ const getTitle = (mode: SchemaEditorDialogProps['mode']) => {
   if (mode === 'duplicate') {
     return 'Duplicar schema';
   }
-  return 'Novo schema';
+  return 'Criar schema';
 };
 
 export default function SchemaEditorDialog({

@@ -78,7 +78,7 @@ export const readRemoteVault = async (
     });
     if (!response.ok) {
       throw new Error(
-        `Falha ao baixar conteudo completo do vault (raw_url). HTTP ${response.status}`,
+        `Falha ao baixar conteudo completo do cofre (raw_url). HTTP ${response.status}`,
       );
     }
     const contentText = await response.text();

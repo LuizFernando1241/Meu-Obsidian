@@ -84,10 +84,10 @@ export default function LeftNav({
   const handleSaveView = async (view: SavedView) => {
     try {
       await upsertView(view);
-      notifier.success(editingView ? 'View atualizada' : 'View criada');
+      notifier.success(editingView ? 'Visao atualizada' : 'Visao criada');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao salvar view: ${message}`);
+      notifier.error(`Erro ao salvar visao: ${message}`);
     } finally {
       setViewDialogOpen(false);
       setEditingView(null);
@@ -130,10 +130,10 @@ export default function LeftNav({
     }
     try {
       await deleteView(deleteViewId);
-      notifier.success('View excluida');
+      notifier.success('Visao excluida');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao excluir view: ${message}`);
+      notifier.error(`Erro ao excluir visao: ${message}`);
     } finally {
       setDeleteViewId(null);
     }
@@ -153,7 +153,7 @@ export default function LeftNav({
               variant="overline"
               sx={{ px: 2.5, py: 1, display: 'block', color: 'text.secondary' }}
             >
-              Views
+              Visoes
             </Typography>
           )}
           {navItems.map((item) => {
@@ -214,11 +214,11 @@ export default function LeftNav({
               }}
             >
               <Typography variant="overline" color="text.secondary">
-                Minhas Views
+                Minhas visoes
               </Typography>
               <IconButton
                 size="small"
-                aria-label="Nova view"
+                aria-label="Criar visao"
                 onClick={() => handleOpenViewDialog(null)}
               >
                 <Add fontSize="small" />
@@ -227,7 +227,7 @@ export default function LeftNav({
             <List dense disablePadding>
               {views.length === 0 ? (
                 <ListItem>
-                  <ListItemText primary="Nenhuma view ainda." />
+                  <ListItemText primary="Nenhuma visao ainda." />
                 </ListItem>
               ) : (
                 views.map((view) => (
@@ -353,7 +353,7 @@ export default function LeftNav({
       </Menu>
       <ConfirmDialog
         open={Boolean(deleteViewId)}
-        title="Excluir view?"
+        title="Excluir visao?"
         description="Esta acao nao pode ser desfeita."
         confirmLabel="Excluir"
         confirmColor="error"

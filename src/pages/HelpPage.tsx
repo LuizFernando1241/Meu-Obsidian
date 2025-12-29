@@ -133,7 +133,7 @@ export default function HelpPage() {
             <ListItemText primary="Tarefas sao checklists dentro das notas." />
           </ListItem>
           <ListItem>
-            <ListItemText primary="As views Tarefas, Hoje e Atrasadas reunem checklists abertas." />
+            <ListItemText primary="As visoes Tarefas, Hoje e Atrasadas reunem checklists abertas." />
           </ListItem>
         </List>
       </Stack>
@@ -151,16 +151,16 @@ export default function HelpPage() {
       </Stack>
 
       <Stack spacing={2}>
-        <Typography variant="h5">Sync</Typography>
+        <Typography variant="h5">Sincronizacao</Typography>
         <List dense disablePadding>
           <ListItem>
-            <ListItemText primary="Configure Gist ID e Token em Configuracoes para ativar o sync." />
+            <ListItemText primary="Configure Gist ID e Token em Configuracoes para ativar a sincronizacao." />
           </ListItem>
           <ListItem>
-            <ListItemText primary="Use Sync agora para forcar a sincronizacao." />
+            <ListItemText primary="Use Sincronizar agora para forcar a sincronizacao." />
           </ListItem>
           <ListItem>
-            <ListItemText primary="Se algo nao aparecer, tente Sync agora ou Recarregar limpando cache." />
+            <ListItemText primary="Se algo nao aparecer, tente Sincronizar agora ou Recarregar limpando cache." />
           </ListItem>
         </List>
       </Stack>

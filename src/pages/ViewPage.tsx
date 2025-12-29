@@ -46,6 +46,35 @@ import { runView } from '../views/runView';
 const getLabel = (value: string | undefined, fallback: string) =>
   value && value.trim() ? value : fallback;
 
+const STATUS_LABELS: Record<string, string> = {
+  idea: 'Ideia',
+  active: 'Ativo',
+  waiting: 'Aguardando',
+  done: 'Concluido',
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Baixa',
+  medium: 'Media',
+  high: 'Alta',
+};
+
+const SORT_LABELS: Record<SavedViewSort['by'], string> = {
+  updatedAt: 'Atualizacao',
+  title: 'Titulo',
+  type: 'Tipo',
+  path: 'Caminho',
+  status: 'Status',
+  due: 'Vencimento',
+  priority: 'Prioridade',
+};
+
+const formatStatusLabel = (value: string) => STATUS_LABELS[value] ?? value;
+const formatPriorityLabel = (value: string) => PRIORITY_LABELS[value] ?? value;
+const formatSortLabel = (value: SavedViewSort['by']) => SORT_LABELS[value] ?? value;
+const formatSortDir = (value?: SavedViewSort['dir']) =>
+  value === 'desc' ? 'decrescente' : 'crescente';
+
 export default function ViewPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -79,15 +108,15 @@ export default function ViewPage() {
     return (
       <Stack spacing={2}>
         <Typography variant="h4" component="h1">
-          View invalida
+          Visao invalida
         </Typography>
-        <Typography color="text.secondary">Selecione uma view para continuar.</Typography>
+        <Typography color="text.secondary">Selecione uma visao para continuar.</Typography>
       </Stack>
     );
   }
 
   if (!views) {
-    return <LoadingState message="Carregando view..." />;
+    return <LoadingState message="Carregando visao..." />;
   }
 
   const view = views.find((entry) => entry.id === id);
@@ -188,10 +217,10 @@ export default function ViewPage() {
     return (
       <Stack spacing={2}>
         <Typography variant="h4" component="h1">
-          View nao encontrada
+          Visao nao encontrada
         </Typography>
         <Typography color="text.secondary">
-          A view solicitada nao existe ou foi removida.
+          A visao solicitada nao existe ou foi removida.
         </Typography>
       </Stack>
     );
@@ -211,10 +240,10 @@ export default function ViewPage() {
     summary.push(`Tags: ${query.tags.join(', ')}`);
   }
   if (query.status?.length) {
-    summary.push(`Status: ${query.status.join(', ')}`);
+    summary.push(`Status: ${query.status.map(formatStatusLabel).join(', ')}`);
   }
   if (query.priority?.length) {
-    summary.push(`Prioridade: ${query.priority.join(', ')}`);
+    summary.push(`Prioridade: ${query.priority.map(formatPriorityLabel).join(', ')}`);
   }
   if (query.favoritesOnly) {
     summary.push('Somente favoritos');
@@ -224,7 +253,7 @@ export default function ViewPage() {
     summary.push(`Pasta: ${getLabel(path, query.rootId)}`);
   }
   if (query.pathPrefix) {
-    summary.push(`Path: ${query.pathPrefix}`);
+    summary.push(`Caminho: ${query.pathPrefix}`);
   }
   if (query.due) {
     const parts = [];
@@ -246,7 +275,7 @@ export default function ViewPage() {
   }
   if (summarySort?.by) {
     summary.push(
-      `Ordenar: ${summarySort.by} (${summarySort.dir === 'desc' ? 'desc' : 'asc'})`,
+      `Ordenar: ${formatSortLabel(summarySort.by)} (${formatSortDir(summarySort.dir)})`,
     );
   }
 
@@ -266,7 +295,7 @@ export default function ViewPage() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao atualizar view: ${message}`);
+      notifier.error(`Erro ao atualizar visao: ${message}`);
     }
   };
 
@@ -405,15 +434,15 @@ export default function ViewPage() {
               onChange={handleDisplayModeChange}
               aria-label="Modo de visualizacao"
             >
-              <ToggleButton value="list">List</ToggleButton>
-              <ToggleButton value="table">Table</ToggleButton>
+              <ToggleButton value="list">Lista</ToggleButton>
+              <ToggleButton value="table">Tabela</ToggleButton>
               <ToggleButton value="kanban">Kanban</ToggleButton>
-              <ToggleButton value="calendar">Calendar</ToggleButton>
+              <ToggleButton value="calendar">Calendario</ToggleButton>
             </ToggleButtonGroup>
           </Stack>
         </Stack>
         <Typography color="text.secondary">
-          {results.length} item{results.length === 1 ? '' : 's'} nesta view.
+          {results.length} item{results.length === 1 ? '' : 's'} nesta visao.
         </Typography>
         {summary.length === 0 ? (
           <Typography color="text.secondary">Sem filtros aplicados.</Typography>
@@ -534,7 +563,7 @@ export default function ViewPage() {
                   onChange={(event) => setKanbanIncludeEmpty(event.target.checked)}
                 />
               }
-              label="Incluir Sem status"
+              label="Incluir sem status"
             />
           </Stack>
         </DialogContent>

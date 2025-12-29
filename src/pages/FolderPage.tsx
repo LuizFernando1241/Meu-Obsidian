@@ -184,10 +184,10 @@ export default function FolderPage({ folderId }: FolderPageProps) {
         </Stack>
         <Stack direction="row" spacing={1}>
           <Button variant="contained" onClick={() => setNewNoteOpen(true)}>
-            Nova nota
+            Criar nota
           </Button>
           <Button variant="outlined" onClick={handleCreateFolder}>
-            Nova pasta
+            Criar pasta
           </Button>
         </Stack>
       </Stack>
@@ -196,7 +196,7 @@ export default function FolderPage({ folderId }: FolderPageProps) {
         <EmptyState
           title="Pasta vazia"
           description="Crie uma nota ou uma subpasta para comecar."
-          actionLabel="Nova nota"
+          actionLabel="Criar nota"
           onAction={() => setNewNoteOpen(true)}
         />
       ) : (

@@ -38,7 +38,7 @@ export default function NewNoteDialog({ open, onClose, onConfirm }: NewNoteDialo
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
-      <DialogTitle>Nova nota</DialogTitle>
+      <DialogTitle>Criar nota</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField

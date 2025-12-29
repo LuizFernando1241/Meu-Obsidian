@@ -89,7 +89,7 @@ export default function TodayViewPage() {
       await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir snooze: ${message}`);
+      notifier.error(`Erro ao definir adiamento: ${message}`);
     }
   };
 
@@ -98,7 +98,7 @@ export default function TodayViewPage() {
       await clearChecklistSnooze(task.noteId, task.blockId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao limpar snooze: ${message}`);
+      notifier.error(`Erro ao limpar adiamento: ${message}`);
     }
   };
 

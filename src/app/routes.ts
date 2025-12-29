@@ -22,7 +22,7 @@ export type AppRoute = {
 };
 
 export const NAV_ROUTES: AppRoute[] = [
-  { key: 'home', label: 'Home', path: '/', icon: HomeOutlined, showInNav: true },
+  { key: 'home', label: 'Inicio', path: '/', icon: HomeOutlined, showInNav: true },
   { key: 'review', label: 'Revisao', path: '/review', icon: FactCheckOutlined, showInNav: true },
   { key: 'tasks', label: 'Tarefas', path: '/tasks', icon: CheckBoxOutlined, showInNav: true },
   { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
@@ -48,10 +48,10 @@ export const NAV_ROUTES: AppRoute[] = [
 ];
 
 export const EXTRA_ROUTES: AppRoute[] = [
-  { key: 'debug', label: 'Debug', path: '/debug', showInNav: false },
+  { key: 'debug', label: 'Depuracao', path: '/debug', showInNav: false },
   { key: 'tag', label: 'Tag', path: '/tags/:tag', showInNav: false },
   { key: 'item', label: 'Item', path: '/item/:id', showInNav: false },
-  { key: 'view', label: 'View', path: '/view/:id', showInNav: false },
+  { key: 'view', label: 'Visao', path: '/view/:id', showInNav: false },
   { key: 'not-found', label: 'Nao encontrado', path: '*', showInNav: false },
 ];
 
@@ -75,7 +75,7 @@ export const getRouteLabelByPathname = (pathname: string) => {
   const normalized = pathname.split('?')[0].split('#')[0] || '/';
 
   if (normalized === '/' || normalized === '') {
-    return ROUTES_BY_KEY.home?.label ?? 'Home';
+    return ROUTES_BY_KEY.home?.label ?? 'Inicio';
   }
 
   const segments = normalized.split('/').filter(Boolean);
@@ -93,11 +93,11 @@ export const getRouteLabelByPathname = (pathname: string) => {
   }
 
   if (first === 'view') {
-    return ROUTES_BY_KEY.view?.label ?? 'View';
+    return ROUTES_BY_KEY.view?.label ?? 'Visao';
   }
 
   if (first === 'debug') {
-    return ROUTES_BY_KEY.debug?.label ?? 'Debug';
+    return ROUTES_BY_KEY.debug?.label ?? 'Depuracao';
   }
 
   const navMatch = NAV_ROUTES.find((route) => route.path === `/${first}`);

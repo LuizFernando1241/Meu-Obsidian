@@ -13,7 +13,7 @@ export default function ListToolbar({
   search,
   onSearchChange,
   onCreate,
-  createLabel = 'Novo',
+  createLabel = 'Criar',
 }: ListToolbarProps) {
   return (
     <Stack spacing={2} direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }}>

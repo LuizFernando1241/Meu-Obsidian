@@ -350,7 +350,7 @@ export default function AppShell() {
           />
           <SpeedDialAction
             icon={<Add />}
-            tooltipTitle="Nova nota"
+            tooltipTitle="Criar nota"
             onClick={() => {
               setFabOpen(false);
               void handleCreate('note');
@@ -358,7 +358,7 @@ export default function AppShell() {
           />
           <SpeedDialAction
             icon={<CreateNewFolder />}
-            tooltipTitle="Nova pasta"
+            tooltipTitle="Criar pasta"
             onClick={() => {
               setFabOpen(false);
               void handleCreate('folder');

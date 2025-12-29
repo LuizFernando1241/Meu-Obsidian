@@ -32,16 +32,16 @@ type ColumnConfig = {
 const EMPTY_COLUMN_ID = '__empty__';
 
 const STATUS_LABELS: Record<string, string> = {
-  idea: 'Idea',
-  active: 'Active',
-  waiting: 'Waiting',
-  done: 'Done',
+  idea: 'Ideia',
+  active: 'Ativo',
+  waiting: 'Aguardando',
+  done: 'Concluido',
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
+  low: 'Baixa',
+  medium: 'Media',
+  high: 'Alta',
 };
 
 const formatStatusLabel = (value: string) => {

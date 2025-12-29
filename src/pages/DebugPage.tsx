@@ -83,14 +83,14 @@ export default function DebugPage() {
     <Box>
       <Stack spacing={2}>
         <Typography variant="h4" component="h1">
-          Debug DB
+          Depuracao do banco
         </Typography>
         <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button variant="contained" onClick={() => handleCreate('note')} disabled={!isReady}>
-            Criar Nota
+            Criar nota
           </Button>
           <Button variant="contained" onClick={() => handleCreate('folder')} disabled={!isReady}>
-            Criar Pasta
+            Criar pasta
           </Button>
           <Button variant="outlined" color="error" onClick={handleWipe} disabled={!isReady}>
             Apagar tudo (wipe)

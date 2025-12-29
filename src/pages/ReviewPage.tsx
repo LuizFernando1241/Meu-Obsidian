@@ -8,7 +8,6 @@ import {
   List,
   ListItem,
   Stack,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -27,6 +26,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import MoveToDialog from '../components/dialogs/MoveToDialog';
 import { useNotifier } from '../components/Notifier';
 import { mergeNodeProps } from '../components/PropertiesEditor';
+import DateField from '../components/DateField';
 import { db } from '../data/db';
 import { filterActiveNodes } from '../data/deleted';
 import {
@@ -45,6 +45,14 @@ import { buildPathCache } from '../vault/pathCache';
 const STALE_NOTE_DAYS = 14;
 const STALE_FOLDER_DAYS = 30;
 const UPCOMING_DAYS = 7;
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  open: 'Aberta',
+  doing: 'Em andamento',
+  waiting: 'Aguardando',
+};
+
+const formatTaskStatus = (value: string) => TASK_STATUS_LABELS[value] ?? value;
 
 const getNodeDue = (node: Node) => {
   const props = node.props as Record<string, unknown> | undefined;
@@ -252,16 +260,14 @@ export default function ReviewPage() {
                   )}
                   {task.priority && <Chip size="small" label={task.priority} variant="outlined" />}
                   {task.status && task.status !== 'open' && (
-                    <Chip size="small" label={task.status} variant="outlined" />
+                    <Chip size="small" label={formatTaskStatus(task.status)} variant="outlined" />
                   )}
                   <Box sx={{ minWidth: { xs: '100%', sm: 160 } }}>
-                    <TextField
+                    <DateField
                       label="Vencimento"
-                      type="date"
                       size="small"
                       value={task.due ?? ''}
-                      onChange={(event) => handleTaskDue(task, event.target.value || null)}
-                      InputLabelProps={{ shrink: true }}
+                      onCommit={(next) => handleTaskDue(task, next)}
                       fullWidth
                     />
                   </Box>
@@ -305,14 +311,12 @@ export default function ReviewPage() {
             rightActions={
               <Stack direction="row" spacing={0.5} alignItems="center">
                 <Box sx={{ width: 150 }}>
-                  <TextField
+                  <DateField
                     label="Vencimento"
-                    type="date"
                     size="small"
                     value={getNodeDue(item)}
                     onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => handleUpdateNodeDue(item, event.target.value || null)}
-                    InputLabelProps={{ shrink: true }}
+                    onCommit={(next) => handleUpdateNodeDue(item, next)}
                     fullWidth
                   />
                 </Box>

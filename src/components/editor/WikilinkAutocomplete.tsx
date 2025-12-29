@@ -54,7 +54,7 @@ export default function WikilinkAutocomplete({
           >
             <ListItemText
               primary={`Criar nota: ${trimmedQuery || '...'}`}
-              secondary="Nova nota rápida"
+              secondary="Criar nota rapida"
             />
           </ListItemButton>
         ) : (
@@ -65,7 +65,7 @@ export default function WikilinkAutocomplete({
               onClick={() => onSelect(item)}
             >
               <ListItemText
-                primary={item.title || 'Sem título'}
+                primary={item.title || 'Sem titulo'}
                 secondary={
                   <Typography variant="caption" color="text.secondary">
                     {TYPE_LABELS[item.nodeType]}

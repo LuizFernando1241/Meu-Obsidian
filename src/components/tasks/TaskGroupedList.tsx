@@ -10,12 +10,12 @@ import {
   DialogContent,
   DialogTitle,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material';
 import { ExpandMore } from '@mui/icons-material';
 
 import TaskList from '../TaskList';
+import DateField from '../DateField';
 import type { IndexedTask } from '../../tasks/taskIndex';
 import { addDaysISO, getTodayISO } from '../../tasks/date';
 
@@ -334,12 +334,10 @@ export default function TaskGroupedList({
         <Dialog open={Boolean(dueDialogTask)} onClose={handleCloseDueDialog}>
           <DialogTitle>Definir vencimento</DialogTitle>
           <DialogContent>
-            <TextField
+            <DateField
               label="Vencimento"
-              type="date"
               value={dueValue}
-              onChange={(event) => setDueValue(event.target.value)}
-              InputLabelProps={{ shrink: true }}
+              onCommit={(next) => setDueValue(next ?? '')}
               fullWidth
               sx={{ mt: 1 }}
             />
@@ -393,7 +391,7 @@ export default function TaskGroupedList({
                   </Typography>
                   {snoozedCount > 0 && (
                     <Typography variant="body2" color="text.secondary">
-                      {snoozedCount} snoozed
+                      {snoozedCount} adiadas
                     </Typography>
                   )}
                 </Stack>
@@ -465,12 +463,10 @@ export default function TaskGroupedList({
       <Dialog open={Boolean(dueDialogTask)} onClose={handleCloseDueDialog}>
         <DialogTitle>Definir vencimento</DialogTitle>
         <DialogContent>
-          <TextField
+          <DateField
             label="Vencimento"
-            type="date"
             value={dueValue}
-            onChange={(event) => setDueValue(event.target.value)}
-            InputLabelProps={{ shrink: true }}
+            onCommit={(next) => setDueValue(next ?? '')}
             fullWidth
             sx={{ mt: 1 }}
           />

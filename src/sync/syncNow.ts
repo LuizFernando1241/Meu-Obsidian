@@ -78,7 +78,7 @@ export const syncNow = async (
 
     return {
       status: 'ok',
-      message: `Sync ok: ${merged.items.length} itens, ${merged.tombstones.length} tombstones, push: ${
+      message: `Sincronizacao ok: ${merged.items.length} itens, ${merged.tombstones.length} marcacoes de exclusao, envio: ${
         shouldPush ? 'sim' : 'nao'
       }`,
     };

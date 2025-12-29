@@ -271,7 +271,7 @@ export default function SettingsPage() {
 
   const handleResetAndDownload = async () => {
     if (!canSync) {
-      notifier.error('Sync nao configurado.');
+      notifier.error('Sincronizacao nao configurada.');
       setConfirmResetDownloadOpen(false);
       return;
     }
@@ -283,7 +283,7 @@ export default function SettingsPage() {
       const message =
         latest.status === 'error'
           ? latest.lastError?.message ?? 'Erro ao sincronizar'
-          : 'Sync ok';
+          : 'Sincronizacao ok';
       if (latest.status === 'error') {
         notifier.error(message);
       } else {
@@ -337,7 +337,7 @@ export default function SettingsPage() {
       const message =
         latest.status === 'error'
           ? latest.lastError?.message ?? 'Erro ao sincronizar'
-          : 'Sync ok';
+          : 'Sincronizacao ok';
       if (latest.status === 'error') {
         notifier.error(message);
       } else {
@@ -570,7 +570,7 @@ export default function SettingsPage() {
         <CardContent>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              Exporta o vault completo em JSON (sem token de sync).
+              Exporta o cofre completo em JSON (sem token de sincronizacao).
             </Typography>
             <Button variant="contained" onClick={handleExport} disabled={isBusy || resetBusy}>
               Exportar backup (JSON)
@@ -580,7 +580,7 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader title="Saude do vault" />
+        <CardHeader title="Saude do cofre" />
         <CardContent>
           <Stack spacing={1.5}>
             <Typography variant="body2" color="text.secondary">
@@ -591,7 +591,7 @@ export default function SettingsPage() {
             </Typography>
             {largeVault && (
               <Alert severity="warning">
-                Vault grande: sincronizacao e buscas podem ficar mais lentas.
+                Cofre grande: sincronizacao e buscas podem ficar mais lentas.
               </Alert>
             )}
           </Stack>
@@ -705,7 +705,7 @@ export default function SettingsPage() {
           title="Schemas"
           action={
             <Button variant="outlined" onClick={handleCreateSchema}>
-              Novo schema
+              Criar schema
             </Button>
           }
         />
@@ -778,7 +778,7 @@ export default function SettingsPage() {
         <CardContent>
           <Stack spacing={2}>
             <Typography color="text.secondary" variant="body2">
-              Informe o Gist ID e o token pessoal para acessar o vault remoto.
+              Informe o Gist ID e o token pessoal para acessar o cofre remoto.
             </Typography>
             <TextField
               label="Gist ID"
@@ -818,7 +818,7 @@ export default function SettingsPage() {
                     onChange={handleAutoSyncToggle}
                   />
                 }
-                label="Auto-sync"
+                label="Sincronizacao automatica"
               />
               <TextField
                 label="Intervalo (min)"
@@ -836,14 +836,19 @@ export default function SettingsPage() {
                 Testar conexao
               </Button>
               <Button variant="contained" onClick={handleDownloadVault} disabled={syncBusy}>
-                Baixar vault agora
+                Baixar cofre agora
               </Button>
-              <Button variant="contained" color="primary" onClick={handleSyncNow} disabled={syncBusy}>
-                Sync agora
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleSyncNow}
+                disabled={syncBusy}
+              >
+                Sincronizar agora
               </Button>
             </Stack>
             <Typography color="text.secondary" variant="body2">
-              Status: {syncStatusLabel} | Ultimo sync:{' '}
+              Status: {syncStatusLabel} | Ultima sincronizacao:{' '}
               {syncRuntime.lastSyncAt
                 ? format(new Date(syncRuntime.lastSyncAt), 'yyyy-MM-dd HH:mm')
                 : 'Nunca'}
@@ -929,7 +934,7 @@ export default function SettingsPage() {
             </Stack>
             {!canSync && (
               <Typography color="text.secondary" variant="body2">
-                Configure o sync para habilitar o reset com download remoto.
+                Configure a sincronizacao para habilitar o reset com download remoto.
               </Typography>
             )}
           </Stack>
@@ -996,7 +1001,7 @@ export default function SettingsPage() {
       <ConfirmDialog
         open={confirmResetDownloadOpen}
         title="Resetar e baixar do remoto?"
-        description="Isso apaga dados locais e baixa o vault do remoto."
+        description="Isso apaga dados locais e baixa o cofre do remoto."
         confirmLabel="Resetar e baixar"
         confirmColor="error"
         onConfirm={handleResetAndDownload}

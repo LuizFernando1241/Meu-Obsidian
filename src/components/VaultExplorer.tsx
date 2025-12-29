@@ -308,7 +308,7 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
         sx={{ px: 2, pt: 1.5, pb: 1 }}
       >
         <Typography variant="overline" color="text.secondary">
-          Vault
+          Cofre
         </Typography>
         <IconButton
           size="small"
@@ -333,10 +333,10 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
         {menuNode?.nodeType === 'folder' && (
           <>
             <MenuItem onClick={() => handleCreateInsideMenu('note')}>
-              Nova nota aqui
+              Criar nota aqui
             </MenuItem>
             <MenuItem onClick={() => handleCreateInsideMenu('folder')}>
-              Nova pasta aqui
+              Criar pasta aqui
             </MenuItem>
           </>
         )}
@@ -356,7 +356,7 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
             void handleCreate('note');
           }}
         >
-          Nova nota
+          Criar nota
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -364,7 +364,7 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
             void handleCreate('folder');
           }}
         >
-          Nova pasta
+          Criar pasta
         </MenuItem>
       </Menu>
 

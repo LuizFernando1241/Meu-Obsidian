@@ -20,6 +20,7 @@ import { buildDefaultSchema } from '../../data/schemaDefaults';
 import type { Node, SavedViewSort } from '../../data/types';
 import type { PathInfo } from '../../vault/pathCache';
 import { useIsMobile } from '../../app/useIsMobile';
+import DateField from '../DateField';
 
 type ViewTableProps = {
   nodes: Node[];
@@ -31,19 +32,35 @@ type ViewTableProps = {
   compact?: boolean;
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  idea: 'Ideia',
+  active: 'Ativo',
+  waiting: 'Aguardando',
+  done: 'Concluido',
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Baixa',
+  medium: 'Media',
+  high: 'Alta',
+};
+
+const formatStatusLabel = (value: string) => STATUS_LABELS[value] ?? value;
+const formatPriorityLabel = (value: string) => PRIORITY_LABELS[value] ?? value;
+
 const DEFAULT_STATUS_OPTIONS = [
   { value: '', label: '-' },
-  { value: 'idea', label: 'Idea' },
-  { value: 'active', label: 'Active' },
-  { value: 'waiting', label: 'Waiting' },
-  { value: 'done', label: 'Done' },
+  { value: 'idea', label: formatStatusLabel('idea') },
+  { value: 'active', label: formatStatusLabel('active') },
+  { value: 'waiting', label: formatStatusLabel('waiting') },
+  { value: 'done', label: formatStatusLabel('done') },
 ];
 
 const DEFAULT_PRIORITY_OPTIONS = [
   { value: '', label: '-' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { value: 'low', label: formatPriorityLabel('low') },
+  { value: 'medium', label: formatPriorityLabel('medium') },
+  { value: 'high', label: formatPriorityLabel('high') },
 ];
 
 const TYPE_LABELS: Record<Node['nodeType'], string> = {
@@ -88,20 +105,26 @@ export default function ViewTable({
     if (!prop?.options || prop.options.length === 0) {
       return DEFAULT_STATUS_OPTIONS;
     }
-    return [{ value: '', label: '-' }, ...prop.options.map((option) => ({
-      value: option,
-      label: option,
-    }))];
+    return [
+      { value: '', label: '-' },
+      ...prop.options.map((option) => ({
+        value: option,
+        label: formatStatusLabel(option),
+      })),
+    ];
   }, [schema]);
   const priorityOptions = React.useMemo(() => {
     const prop = schema.properties.find((entry) => entry.key === 'priority');
     if (!prop?.options || prop.options.length === 0) {
       return DEFAULT_PRIORITY_OPTIONS;
     }
-    return [{ value: '', label: '-' }, ...prop.options.map((option) => ({
-      value: option,
-      label: option,
-    }))];
+    return [
+      { value: '', label: '-' },
+      ...prop.options.map((option) => ({
+        value: option,
+        label: formatPriorityLabel(option),
+      })),
+    ];
   }, [schema]);
   const handleSort = (by: SavedViewSort['by']) => {
     const isActive = sortState?.by === by;
@@ -125,7 +148,7 @@ export default function ViewTable({
                 direction={sortState?.by === 'title' ? sortState.dir : 'asc'}
                 onClick={() => handleSort('title')}
               >
-                Title
+                Titulo
               </TableSortLabel>
             </TableCell>
             {showType && (
@@ -135,7 +158,7 @@ export default function ViewTable({
                   direction={sortState?.by === 'type' ? sortState.dir : 'asc'}
                   onClick={() => handleSort('type')}
                 >
-                  Type
+                  Tipo
                 </TableSortLabel>
               </TableCell>
             )}
@@ -145,7 +168,7 @@ export default function ViewTable({
                 direction={sortState?.by === 'path' ? sortState.dir : 'asc'}
                 onClick={() => handleSort('path')}
               >
-                Path
+                Caminho
               </TableSortLabel>
             </TableCell>
             <TableCell sortDirection={sortState?.by === 'status' ? sortState.dir : false}>
@@ -163,7 +186,7 @@ export default function ViewTable({
                 direction={sortState?.by === 'priority' ? sortState.dir : 'asc'}
                 onClick={() => handleSort('priority')}
               >
-                Priority
+                Prioridade
               </TableSortLabel>
             </TableCell>
             <TableCell sortDirection={sortState?.by === 'due' ? sortState.dir : false}>
@@ -172,7 +195,7 @@ export default function ViewTable({
                 direction={sortState?.by === 'due' ? sortState.dir : 'asc'}
                 onClick={() => handleSort('due')}
               >
-                Due
+                Vencimento
               </TableSortLabel>
             </TableCell>
             {showUpdated && (
@@ -182,7 +205,7 @@ export default function ViewTable({
                   direction={sortState?.by === 'updatedAt' ? sortState.dir : 'asc'}
                   onClick={() => handleSort('updatedAt')}
                 >
-                  Updated
+                  Atualizado
                 </TableSortLabel>
               </TableCell>
             )}
@@ -253,14 +276,12 @@ export default function ViewTable({
                   </TextField>
                 </TableCell>
                 <TableCell sx={{ minWidth: isMobile ? 130 : 150 }}>
-                  <TextField
-                    type="date"
+                  <DateField
                     size="small"
                     value={due}
-                    onChange={(event) =>
-                      onUpdateProps(node.id, { due: event.target.value || undefined })
+                    onCommit={(next) =>
+                      onUpdateProps(node.id, { due: next || undefined })
                     }
-                    InputLabelProps={{ shrink: true }}
                     fullWidth
                   />
                 </TableCell>

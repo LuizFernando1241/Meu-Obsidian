@@ -15,7 +15,7 @@ export type Command =
 
 export const getStaticCommands = () => ({
   nav: [
-    { kind: 'nav', path: '/', title: 'Home' },
+    { kind: 'nav', path: '/', title: 'Inicio' },
     { kind: 'nav', path: '/tasks', title: 'Tarefas' },
     { kind: 'nav', path: '/notes', title: 'Notas' },
     { kind: 'nav', path: '/tags', title: 'Tags' },
@@ -28,13 +28,13 @@ export const getStaticCommands = () => ({
     {
       kind: 'create',
       nodeType: 'note',
-      title: 'Nova nota (na pasta atual)',
+      title: 'Criar nota (na pasta atual)',
       target: 'current',
     },
     {
       kind: 'create',
       nodeType: 'folder',
-      title: 'Nova pasta (na pasta atual)',
+      title: 'Criar pasta (na pasta atual)',
       target: 'current',
     },
   ] as Command[],
