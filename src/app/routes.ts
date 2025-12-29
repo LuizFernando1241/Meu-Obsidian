@@ -1,7 +1,9 @@
 import type { SvgIconComponent } from '@mui/icons-material';
 import {
   CheckBoxOutlined,
+  DeleteOutline,
   EventBusyOutlined,
+  FactCheckOutlined,
   HelpOutline,
   HomeOutlined,
   HubOutlined,
@@ -21,10 +23,12 @@ export type AppRoute = {
 
 export const NAV_ROUTES: AppRoute[] = [
   { key: 'home', label: 'Home', path: '/', icon: HomeOutlined, showInNav: true },
+  { key: 'review', label: 'Revisao', path: '/review', icon: FactCheckOutlined, showInNav: true },
   { key: 'tasks', label: 'Tarefas', path: '/tasks', icon: CheckBoxOutlined, showInNav: true },
   { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
   { key: 'overdue', label: 'Atrasadas', path: '/overdue', icon: EventBusyOutlined, showInNav: true },
   { key: 'notes', label: 'Notas', path: '/notes', icon: NoteOutlined, showInNav: true },
+  { key: 'trash', label: 'Lixeira', path: '/trash', icon: DeleteOutline, showInNav: true },
   { key: 'tags', label: 'Tags', path: '/tags', icon: LocalOfferOutlined, showInNav: true },
   { key: 'graph', label: 'Grafo', path: '/graph', icon: HubOutlined, showInNav: true },
   {
@@ -47,6 +51,7 @@ export const EXTRA_ROUTES: AppRoute[] = [
   { key: 'debug', label: 'Debug', path: '/debug', showInNav: false },
   { key: 'tag', label: 'Tag', path: '/tags/:tag', showInNav: false },
   { key: 'item', label: 'Item', path: '/item/:id', showInNav: false },
+  { key: 'view', label: 'View', path: '/view/:id', showInNav: false },
   { key: 'not-found', label: 'Nao encontrado', path: '*', showInNav: false },
 ];
 
@@ -85,6 +90,10 @@ export const getRouteLabelByPathname = (pathname: string) => {
 
   if (first === 'item') {
     return ROUTES_BY_KEY.item?.label ?? 'Item';
+  }
+
+  if (first === 'view') {
+    return ROUTES_BY_KEY.view?.label ?? 'View';
   }
 
   if (first === 'debug') {

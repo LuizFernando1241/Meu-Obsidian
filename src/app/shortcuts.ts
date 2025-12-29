@@ -43,6 +43,13 @@ export const SHORTCUTS: Shortcut[] = [
     description: 'Criar pasta rapida.',
   },
   {
+    id: 'capture',
+    name: 'Captura rapida',
+    keys: 'Ctrl+Shift+C / Cmd+Shift+C',
+    where: 'Global',
+    description: 'Abrir a captura rapida.',
+  },
+  {
     id: 'close-dialog',
     name: 'Fechar modais',
     keys: 'Esc',

@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 
 import { getTemplates } from '../../vault/templates';
+import { useIsMobile } from '../../app/useIsMobile';
 
 type NewNoteDialogProps = {
   open: boolean;
@@ -19,6 +20,7 @@ type NewNoteDialogProps = {
 };
 
 export default function NewNoteDialog({ open, onClose, onConfirm }: NewNoteDialogProps) {
+  const isMobile = useIsMobile();
   const templates = React.useMemo(() => getTemplates(), []);
   const [title, setTitle] = React.useState('');
   const [templateId, setTemplateId] = React.useState(templates[0]?.id ?? '');
@@ -35,7 +37,7 @@ export default function NewNoteDialog({ open, onClose, onConfirm }: NewNoteDialo
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
       <DialogTitle>Nova nota</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
@@ -60,9 +62,13 @@ export default function NewNoteDialog({ open, onClose, onConfirm }: NewNoteDialo
           </TextField>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancelar</Button>
-        <Button onClick={handleConfirm} variant="contained">
+      <DialogActions
+        sx={{ flexDirection: isMobile ? 'column' : 'row', alignItems: 'stretch' }}
+      >
+        <Button onClick={onClose} sx={{ width: isMobile ? '100%' : 'auto' }}>
+          Cancelar
+        </Button>
+        <Button onClick={handleConfirm} variant="contained" sx={{ width: isMobile ? '100%' : 'auto' }}>
           Criar
         </Button>
       </DialogActions>

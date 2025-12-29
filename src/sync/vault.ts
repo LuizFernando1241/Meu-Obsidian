@@ -1,10 +1,12 @@
-import type { Item, Tombstone } from '../data/types';
+import type { Item, PropertySchema, SavedView, Tombstone } from '../data/types';
 
 export type Vault = {
   schema: 1;
   lastWriteAt: number;
   items: Item[];
   tombstones: Tombstone[];
+  views: SavedView[];
+  schemas?: PropertySchema[];
 };
 
 export const defaultVault = (): Vault => ({
@@ -12,6 +14,8 @@ export const defaultVault = (): Vault => ({
   lastWriteAt: Date.now(),
   items: [],
   tombstones: [],
+  views: [],
+  schemas: [],
 });
 
 export const parseVault = (text: string): Vault => {
@@ -25,6 +29,17 @@ export const parseVault = (text: string): Vault => {
     const tombstones = Array.isArray(parsed.tombstones)
       ? (parsed.tombstones as Tombstone[])
       : [];
+    const views = Array.isArray(parsed.views) ? (parsed.views as SavedView[]) : [];
+    const schemaDef =
+      parsed.schemaDef && typeof parsed.schemaDef === 'object'
+        ? (parsed.schemaDef as PropertySchema)
+        : undefined;
+    const schemas =
+      Array.isArray(parsed.schemas) && parsed.schemas.length > 0
+        ? (parsed.schemas as PropertySchema[])
+        : schemaDef
+          ? [schemaDef]
+          : [];
     const lastWriteAt =
       typeof parsed.lastWriteAt === 'number' ? parsed.lastWriteAt : Date.now();
 
@@ -33,6 +48,8 @@ export const parseVault = (text: string): Vault => {
       lastWriteAt,
       items,
       tombstones,
+      views,
+      schemas,
     };
   } catch {
     return defaultVault();

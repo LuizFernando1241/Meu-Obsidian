@@ -8,9 +8,26 @@ export class SearchIndexService {
   private docsById = new Map<string, SearchDoc>();
   private revById = new Map<string, number>();
   private ready = false;
+  private indexedKeys: string[] | undefined = undefined;
+
+  setIndexedKeys(keys?: string[]) {
+    const next = keys ? [...keys] : undefined;
+    const prev = this.indexedKeys;
+    const isSame =
+      (!prev && !next) ||
+      (prev &&
+        next &&
+        prev.length === next.length &&
+        prev.every((value, index) => value === next[index]));
+    if (isSame) {
+      return;
+    }
+    this.indexedKeys = next;
+    this.ready = false;
+  }
 
   init(items: Node[]) {
-    const docs = items.map(itemToDoc);
+    const docs = items.map((item) => itemToDoc(item, this.indexedKeys));
     this.index = buildIndex(docs);
     this.docsById = new Map(docs.map((doc) => [doc.id, doc]));
     this.revById = new Map(items.map((item) => [item.id, item.rev ?? 1]));
@@ -59,7 +76,7 @@ export class SearchIndexService {
       });
 
       newItems.forEach((item) => {
-        const doc = itemToDoc(item);
+        const doc = itemToDoc(item, this.indexedKeys);
         this.index?.add(doc);
         this.docsById.set(doc.id, doc);
         this.revById.set(item.id, item.rev ?? 1);
@@ -72,7 +89,7 @@ export class SearchIndexService {
         } else {
           this.index?.remove({ id: item.id } as SearchDoc);
         }
-        const doc = itemToDoc(item);
+        const doc = itemToDoc(item, this.indexedKeys);
         this.index?.add(doc);
         this.docsById.set(doc.id, doc);
         this.revById.set(item.id, item.rev ?? 1);

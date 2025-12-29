@@ -10,9 +10,10 @@ import MoveToDialog from '../components/dialogs/MoveToDialog';
 import NewNoteDialog from '../components/dialogs/NewNoteDialog';
 import RenameDialog from '../components/dialogs/RenameDialog';
 import { db } from '../data/db';
+import { filterActiveNodes } from '../data/deleted';
 import { useChildren, useItem } from '../data/hooks';
 import { createFolder, createNote, deleteNode, moveNode, renameNode } from '../data/repo';
-import type { Node as DataNode } from '../data/types';
+import type { Block, Node as DataNode } from '../data/types';
 import { getPath } from '../vault/path';
 import { getTemplateContent } from '../vault/templates';
 
@@ -25,7 +26,8 @@ export default function FolderPage({ folderId }: FolderPageProps) {
   const notifier = useNotifier();
   const folder = useItem(folderId);
   const children = useChildren(folderId);
-  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
   const nodesById = React.useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
@@ -34,6 +36,12 @@ export default function FolderPage({ folderId }: FolderPageProps) {
     () => (folderId ? getPath(folderId, nodesById) : []),
     [folderId, nodesById],
   );
+  const folderTemplateBlocks =
+    folder?.props &&
+    Array.isArray((folder.props as Record<string, unknown>).templateBlocks)
+      ? ((folder.props as Record<string, unknown>).templateBlocks as Block[])
+      : [];
+  const hasFolderTemplate = folderTemplateBlocks.length > 0;
 
   const subfolders = React.useMemo(
     () =>
@@ -119,7 +127,7 @@ export default function FolderPage({ folderId }: FolderPageProps) {
 
   const handleCreateNote = async (payload: { title?: string; templateId: string }) => {
     try {
-      const content = getTemplateContent(payload.templateId);
+      const content = hasFolderTemplate ? undefined : getTemplateContent(payload.templateId);
       const created = await createNote({ parentId: folderId, title: payload.title, content });
       notifier.success('Nota criada');
       setNewNoteOpen(false);

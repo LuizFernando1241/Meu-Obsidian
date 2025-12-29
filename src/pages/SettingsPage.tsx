@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Chip,
   FormControl,
   FormControlLabel,
   Radio,
@@ -16,9 +17,12 @@ import {
 } from '@mui/material';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 import { BUILD_TIME, GIT_SHA, MODE } from '../app/buildInfo';
+import { computeVaultStats } from '../app/vaultStats';
 import ConfirmDialog from '../components/ConfirmDialog';
+import SchemaEditorDialog from '../components/dialogs/SchemaEditorDialog';
 import { useNotifier } from '../components/Notifier';
 import {
   exportVaultJson,
@@ -26,10 +30,25 @@ import {
   resetLocalData,
   validateVaultBackup,
 } from '../data/backup';
+import {
+  deleteAutoBackup,
+  downloadAutoBackup,
+  getAutoBackupPrefs,
+  getLastAutoBackupAt,
+  restoreAutoBackup,
+  runAutoBackupNow,
+  setAutoBackupPrefs,
+} from '../data/autoBackup';
+import { db } from '../data/db';
+import { filterActiveNodes } from '../data/deleted';
+import { deleteSchema, listSchemas, upsertSchema } from '../data/repo';
 import { readRemoteVault, testConnection } from '../sync/gistClient';
 import { syncNowManual, setAutoSyncEnabled, setIntervalMin } from '../sync/syncService';
 import { getSyncPrefs, getSyncState, subscribeSyncState } from '../sync/syncState';
 import type { SyncSettings } from '../sync/types';
+import type { NoteNode, PropertySchema } from '../data/types';
+import { buildTaskIndex } from '../tasks/taskIndex';
+import { getTodayISO } from '../tasks/date';
 
 type ImportMode = 'replace' | 'merge';
 type FileSummary = {
@@ -37,6 +56,22 @@ type FileSummary = {
 };
 
 const SYNC_SETTINGS_KEY = 'mf_sync_settings';
+const LARGE_VAULT_BYTES = 2 * 1024 * 1024;
+
+const formatBytes = (bytes: number) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const kb = bytes / 1024;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB`;
+};
 
 const readStoredSyncSettings = (): SyncSettings => {
   if (typeof window === 'undefined') {
@@ -77,6 +112,58 @@ export default function SettingsPage() {
   );
   const [syncPrefs, setSyncPrefsState] = React.useState(() => getSyncPrefs());
   const [syncRuntime, setSyncRuntime] = React.useState(getSyncState());
+  const [autoBackupPrefs, setAutoBackupPrefsState] = React.useState(() => getAutoBackupPrefs());
+  const [autoBackupBusy, setAutoBackupBusy] = React.useState(false);
+  const [autoBackupRestore, setAutoBackupRestore] = React.useState<string | null>(null);
+  const [autoBackupDelete, setAutoBackupDelete] = React.useState<string | null>(null);
+  const schemas = useLiveQuery(() => listSchemas(), []) ?? [];
+  const views = useLiveQuery(() => db.views.toArray(), []) ?? [];
+  const autoBackups = useLiveQuery(
+    () => db.autoBackups.orderBy('createdAt').reverse().toArray(),
+    [],
+  ) ?? [];
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
+  const notes = React.useMemo(
+    () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
+    [nodes],
+  );
+  const tasks = React.useMemo(
+    () => buildTaskIndex(notes, getTodayISO()),
+    [notes],
+  );
+  const vaultStats = React.useMemo(
+    () => computeVaultStats(nodes, tasks, views, schemas),
+    [nodes, tasks, views, schemas],
+  );
+  const approxBytes = vaultStats.approxBytes;
+  const largeVault = approxBytes > LARGE_VAULT_BYTES;
+  const schemaUsage = React.useMemo(() => {
+    const usage = new Map<string, number>();
+    nodes.forEach((node) => {
+      if (node.nodeType !== 'folder') {
+        return;
+      }
+      const schemaId =
+        node.props && typeof node.props === 'object'
+          ? typeof (node.props as Record<string, unknown>).schemaId === 'string'
+            ? String((node.props as Record<string, unknown>).schemaId)
+            : ''
+          : '';
+      if (!schemaId) {
+        return;
+      }
+      usage.set(schemaId, (usage.get(schemaId) ?? 0) + 1);
+    });
+    return usage;
+  }, [nodes]);
+  const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false);
+  const [schemaDialogMode, setSchemaDialogMode] = React.useState<
+    'create' | 'edit' | 'duplicate'
+  >('create');
+  const [schemaEditing, setSchemaEditing] = React.useState<PropertySchema | null>(null);
+  const [schemaDeleteTarget, setSchemaDeleteTarget] =
+    React.useState<PropertySchema | null>(null);
 
   React.useEffect(() => {
     window.localStorage.setItem(SYNC_SETTINGS_KEY, JSON.stringify(syncSettings));
@@ -195,7 +282,7 @@ export default function SettingsPage() {
       const latest = getSyncState();
       const message =
         latest.status === 'error'
-          ? latest.lastError ?? 'Erro ao sincronizar'
+          ? latest.lastError?.message ?? 'Erro ao sincronizar'
           : 'Sync ok';
       if (latest.status === 'error') {
         notifier.error(message);
@@ -249,7 +336,7 @@ export default function SettingsPage() {
       const latest = getSyncState();
       const message =
         latest.status === 'error'
-          ? latest.lastError ?? 'Erro ao sincronizar'
+          ? latest.lastError?.message ?? 'Erro ao sincronizar'
           : 'Sync ok';
       if (latest.status === 'error') {
         notifier.error(message);
@@ -279,6 +366,99 @@ export default function SettingsPage() {
     setIntervalMin(next);
   };
 
+  const handleAutoBackupToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = event.target.checked;
+    const next = { ...autoBackupPrefs, enabled };
+    setAutoBackupPrefsState(next);
+    setAutoBackupPrefs(next);
+  };
+
+  const handleAutoBackupInterval = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = Number(event.target.value);
+    const nextValue = Number.isFinite(raw)
+      ? Math.min(168, Math.max(1, Math.floor(raw)))
+      : autoBackupPrefs.intervalHours;
+    const next = { ...autoBackupPrefs, intervalHours: nextValue };
+    setAutoBackupPrefsState(next);
+    setAutoBackupPrefs(next);
+  };
+
+  const handleAutoBackupRetention = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = Number(event.target.value);
+    const nextValue = Number.isFinite(raw)
+      ? Math.min(50, Math.max(1, Math.floor(raw)))
+      : autoBackupPrefs.retention;
+    const next = { ...autoBackupPrefs, retention: nextValue };
+    setAutoBackupPrefsState(next);
+    setAutoBackupPrefs(next);
+  };
+
+  const handleRunAutoBackup = async () => {
+    setAutoBackupBusy(true);
+    try {
+      await runAutoBackupNow();
+      notifier.success('Auto-backup criado');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao criar auto-backup: ${message}`);
+    } finally {
+      setAutoBackupBusy(false);
+    }
+  };
+
+  const handleDownloadAutoBackup = (id: string) => {
+    const backup = autoBackups.find((entry) => entry.id === id);
+    if (!backup) {
+      return;
+    }
+    try {
+      downloadAutoBackup(backup);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao baixar backup: ${message}`);
+    }
+  };
+
+  const handleConfirmRestoreBackup = async () => {
+    if (!autoBackupRestore) {
+      return;
+    }
+    const backup = autoBackups.find((entry) => entry.id === autoBackupRestore);
+    if (!backup) {
+      setAutoBackupRestore(null);
+      return;
+    }
+    setAutoBackupBusy(true);
+    try {
+      await restoreAutoBackup(backup);
+      notifier.success('Backup restaurado');
+      navigate('/');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao restaurar backup: ${message}`);
+    } finally {
+      setAutoBackupBusy(false);
+      setAutoBackupRestore(null);
+    }
+  };
+
+  const handleConfirmDeleteBackup = async () => {
+    if (!autoBackupDelete) {
+      return;
+    }
+    setAutoBackupBusy(true);
+    try {
+      await deleteAutoBackup(autoBackupDelete);
+      notifier.success('Backup apagado');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao apagar backup: ${message}`);
+    } finally {
+      setAutoBackupBusy(false);
+      setAutoBackupDelete(null);
+    }
+  };
+
   const itemCount = fileInfo?.nodeCount ?? 0;
   const canSync = Boolean(syncSettings.gistId.trim() && syncSettings.token.trim());
   const syncStatusLabel =
@@ -297,6 +477,7 @@ export default function SettingsPage() {
     : BUILD_TIME;
   const hostLabel = typeof window !== 'undefined' ? window.location.host : '-';
   const versionLabel = `v-${GIT_SHA}`;
+  const lastAutoBackupAt = getLastAutoBackupAt();
 
   const handleReload = () => {
     if (typeof window === 'undefined') {
@@ -322,6 +503,62 @@ export default function SettingsPage() {
     window.location.replace(url.toString());
   };
 
+  const handleCreateSchema = () => {
+    setSchemaEditing(null);
+    setSchemaDialogMode('create');
+    setSchemaDialogOpen(true);
+  };
+
+  const handleEditSchema = (schema: PropertySchema) => {
+    setSchemaEditing(schema);
+    setSchemaDialogMode('edit');
+    setSchemaDialogOpen(true);
+  };
+
+  const handleDuplicateSchema = (schema: PropertySchema) => {
+    setSchemaEditing(schema);
+    setSchemaDialogMode('duplicate');
+    setSchemaDialogOpen(true);
+  };
+
+  const handleSaveSchema = async (schema: PropertySchema) => {
+    try {
+      await upsertSchema(schema);
+      notifier.success('Schema salvo');
+      setSchemaDialogOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao salvar schema: ${message}`);
+    }
+  };
+
+  const handleDeleteSchemaRequest = (schema: PropertySchema) => {
+    if (schema.id === 'global') {
+      notifier.error('O schema global nao pode ser removido.');
+      return;
+    }
+    const usageCount = schemaUsage.get(schema.id) ?? 0;
+    if (usageCount > 0) {
+      notifier.error(`Schema em uso por ${usageCount} pasta(s).`);
+      return;
+    }
+    setSchemaDeleteTarget(schema);
+  };
+
+  const handleConfirmDeleteSchema = async () => {
+    if (!schemaDeleteTarget) {
+      return;
+    }
+    try {
+      await deleteSchema(schemaDeleteTarget.id);
+      notifier.success('Schema removido');
+      setSchemaDeleteTarget(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao remover schema: ${message}`);
+    }
+  };
+
   return (
     <Stack spacing={3}>
       <Typography variant="h4" component="h1">
@@ -338,6 +575,200 @@ export default function SettingsPage() {
             <Button variant="contained" onClick={handleExport} disabled={isBusy || resetBusy}>
               Exportar backup (JSON)
             </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader title="Saude do vault" />
+        <CardContent>
+          <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">
+              {vaultStats.noteCount} notas, {vaultStats.folderCount} pastas, {vaultStats.openTasks} tarefas abertas.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Tamanho aproximado: {formatBytes(approxBytes)}
+            </Typography>
+            {largeVault && (
+              <Alert severity="warning">
+                Vault grande: sincronizacao e buscas podem ficar mais lentas.
+              </Alert>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader title="Auto-backup local" />
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography color="text.secondary" variant="body2">
+              O auto-backup roda apenas com o app aberto, respeitando o intervalo.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoBackupPrefs.enabled}
+                    onChange={handleAutoBackupToggle}
+                  />
+                }
+                label="Auto-backup habilitado"
+              />
+              <TextField
+                label="Intervalo (horas)"
+                type="number"
+                size="small"
+                value={autoBackupPrefs.intervalHours}
+                onChange={handleAutoBackupInterval}
+                inputProps={{ min: 1, max: 168 }}
+                sx={{ width: 160 }}
+                disabled={!autoBackupPrefs.enabled}
+              />
+              <TextField
+                label="Retencao"
+                type="number"
+                size="small"
+                value={autoBackupPrefs.retention}
+                onChange={handleAutoBackupRetention}
+                inputProps={{ min: 1, max: 50 }}
+                sx={{ width: 140 }}
+                disabled={!autoBackupPrefs.enabled}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleRunAutoBackup}
+                disabled={autoBackupBusy}
+              >
+                Criar agora
+              </Button>
+            </Stack>
+            <Typography variant="body2" color="text.secondary">
+              Ultimo auto-backup:{' '}
+              {lastAutoBackupAt
+                ? format(new Date(lastAutoBackupAt), 'yyyy-MM-dd HH:mm')
+                : 'Nunca'}
+            </Typography>
+            {autoBackups.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Nenhum auto-backup armazenado ainda.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {autoBackups.map((backup) => (
+                  <Stack
+                    key={backup.id}
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    alignItems={{ sm: 'center' }}
+                    sx={{ border: '1px solid', borderColor: 'divider', p: 1.5, borderRadius: 1 }}
+                  >
+                    <Stack spacing={0.5}>
+                      <Typography variant="subtitle2">
+                        {format(new Date(backup.createdAt), 'yyyy-MM-dd HH:mm')}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {formatBytes(backup.bytes)}
+                      </Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={1} sx={{ ml: { sm: 'auto' } }}>
+                      <Button size="small" onClick={() => handleDownloadAutoBackup(backup.id)}>
+                        Baixar
+                      </Button>
+                      <Button
+                        size="small"
+                        color="warning"
+                        onClick={() => setAutoBackupRestore(backup.id)}
+                        disabled={autoBackupBusy}
+                      >
+                        Restaurar
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => setAutoBackupDelete(backup.id)}
+                        disabled={autoBackupBusy}
+                      >
+                        Apagar
+                      </Button>
+                    </Stack>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card id="schemas">
+        <CardHeader
+          title="Schemas"
+          action={
+            <Button variant="outlined" onClick={handleCreateSchema}>
+              Novo schema
+            </Button>
+          }
+        />
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography color="text.secondary" variant="body2">
+              Defina propriedades e defaults por pasta. O schema global sempre existe.
+            </Typography>
+            {schemas.length === 0 ? (
+              <Typography color="text.secondary" variant="body2">
+                Nenhum schema adicional criado.
+              </Typography>
+            ) : (
+              <Stack spacing={2}>
+                {schemas.map((schema) => {
+                  const usageCount = schemaUsage.get(schema.id) ?? 0;
+                  const propCount = Array.isArray(schema.properties)
+                    ? schema.properties.length
+                    : 0;
+                  return (
+                    <Stack
+                      key={schema.id}
+                      direction={{ xs: 'column', sm: 'row' }}
+                      spacing={2}
+                      alignItems={{ sm: 'center' }}
+                      sx={{ border: '1px solid', borderColor: 'divider', p: 2, borderRadius: 1 }}
+                    >
+                      <Stack spacing={0.5}>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Typography variant="subtitle1">
+                            {schema.name || schema.id}
+                          </Typography>
+                          {schema.id === 'global' && <Chip size="small" label="Global" />}
+                        </Stack>
+                        <Typography variant="body2" color="text.secondary">
+                          {propCount} propriedade(s)
+                        </Typography>
+                        {usageCount > 0 && (
+                          <Typography variant="body2" color="text.secondary">
+                            Usado por {usageCount} pasta(s)
+                          </Typography>
+                        )}
+                      </Stack>
+                      <Stack direction="row" spacing={1} sx={{ ml: { sm: 'auto' } }}>
+                        <Button size="small" onClick={() => handleEditSchema(schema)}>
+                          Editar
+                        </Button>
+                        <Button size="small" onClick={() => handleDuplicateSchema(schema)}>
+                          Duplicar
+                        </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteSchemaRequest(schema)}
+                        >
+                          Excluir
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            )}
           </Stack>
         </CardContent>
       </Card>
@@ -413,7 +844,9 @@ export default function SettingsPage() {
             </Stack>
             <Typography color="text.secondary" variant="body2">
               Status: {syncStatusLabel} | Ultimo sync:{' '}
-              {syncRuntime.lastSyncAt ? format(new Date(syncRuntime.lastSyncAt), 'yyyy-MM-dd HH:mm') : 'Nunca'}
+              {syncRuntime.lastSyncAt
+                ? format(new Date(syncRuntime.lastSyncAt), 'yyyy-MM-dd HH:mm')
+                : 'Nunca'}
             </Typography>
           </Stack>
         </CardContent>
@@ -569,6 +1002,42 @@ export default function SettingsPage() {
         onConfirm={handleResetAndDownload}
         onClose={() => setConfirmResetDownloadOpen(false)}
         isLoading={resetBusy}
+      />
+      <ConfirmDialog
+        open={Boolean(autoBackupRestore)}
+        title="Restaurar backup local?"
+        description="Isso substitui seus dados locais pelo backup selecionado."
+        confirmLabel="Restaurar"
+        confirmColor="warning"
+        onConfirm={handleConfirmRestoreBackup}
+        onClose={() => setAutoBackupRestore(null)}
+        isLoading={autoBackupBusy}
+      />
+      <ConfirmDialog
+        open={Boolean(autoBackupDelete)}
+        title="Apagar backup local?"
+        description="Essa acao remove o backup salvo localmente."
+        confirmLabel="Apagar"
+        confirmColor="error"
+        onConfirm={handleConfirmDeleteBackup}
+        onClose={() => setAutoBackupDelete(null)}
+        isLoading={autoBackupBusy}
+      />
+      <SchemaEditorDialog
+        open={schemaDialogOpen}
+        mode={schemaDialogMode}
+        initialSchema={schemaEditing}
+        onClose={() => setSchemaDialogOpen(false)}
+        onSave={handleSaveSchema}
+      />
+      <ConfirmDialog
+        open={Boolean(schemaDeleteTarget)}
+        title="Excluir schema?"
+        description="Essa acao remove o schema localmente."
+        confirmLabel="Excluir"
+        confirmColor="error"
+        onConfirm={handleConfirmDeleteSchema}
+        onClose={() => setSchemaDeleteTarget(null)}
       />
     </Stack>
   );

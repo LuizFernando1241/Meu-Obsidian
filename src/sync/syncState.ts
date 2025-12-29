@@ -2,11 +2,18 @@ import type { SyncSettings } from './types';
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
 
+export type SyncError = {
+  message: string;
+  code?: string;
+};
+
 export type SyncRuntimeState = {
   status: SyncStatus;
   lastSyncAt?: number;
+  lastAttemptAt?: number;
   lastSuccessfulSyncAt?: number;
-  lastError?: string;
+  lastError?: SyncError | null;
+  isSyncing: boolean;
   dirty: boolean;
 };
 
@@ -18,6 +25,7 @@ type SyncPrefs = {
 const AUTO_SYNC_KEY = 'mf_sync_auto';
 const INTERVAL_KEY = 'mf_sync_interval_min';
 const LAST_SYNC_KEY = 'mf_sync_last_at';
+const LAST_ATTEMPT_KEY = 'mf_sync_last_attempt_at';
 const LAST_SUCCESS_KEY = 'mf_sync_last_success_at';
 const SETTINGS_KEY = 'mf_sync_settings';
 
@@ -29,7 +37,9 @@ const DEFAULT_PREFS: SyncPrefs = {
 let runtimeState: SyncRuntimeState = {
   status: 'idle',
   dirty: false,
+  isSyncing: false,
   lastSyncAt: undefined,
+  lastAttemptAt: undefined,
   lastError: undefined,
 };
 
@@ -65,17 +75,21 @@ export const setSyncPrefs = (prefs: SyncPrefs) => {
   window.localStorage.setItem(INTERVAL_KEY, String(clampInterval(prefs.intervalMin)));
 };
 
-export const getLastSyncAt = (): number | undefined => {
+export const getLastAttemptAt = (): number | undefined => {
   if (typeof window === 'undefined') {
     return undefined;
   }
-  const raw = window.localStorage.getItem(LAST_SYNC_KEY);
+  const raw =
+    window.localStorage.getItem(LAST_ATTEMPT_KEY) ??
+    window.localStorage.getItem(LAST_SYNC_KEY);
   if (!raw) {
     return undefined;
   }
   const value = Number(raw);
   return Number.isFinite(value) ? value : undefined;
 };
+
+export const getLastSyncAt = (): number | undefined => getLastAttemptAt();
 
 export const getLastSuccessfulSyncAt = (): number | undefined => {
   if (typeof window === 'undefined') {
@@ -83,22 +97,26 @@ export const getLastSuccessfulSyncAt = (): number | undefined => {
   }
   const raw = window.localStorage.getItem(LAST_SUCCESS_KEY);
   if (!raw) {
-    return getLastSyncAt();
+    return getLastAttemptAt();
   }
   const value = Number(raw);
   return Number.isFinite(value) ? value : undefined;
 };
 
-export const setLastSyncAt = (value?: number) => {
+export const setLastAttemptAt = (value?: number) => {
   if (typeof window === 'undefined') {
     return;
   }
   if (!value) {
+    window.localStorage.removeItem(LAST_ATTEMPT_KEY);
     window.localStorage.removeItem(LAST_SYNC_KEY);
     return;
   }
+  window.localStorage.setItem(LAST_ATTEMPT_KEY, String(value));
   window.localStorage.setItem(LAST_SYNC_KEY, String(value));
 };
+
+export const setLastSyncAt = (value?: number) => setLastAttemptAt(value);
 
 export const setLastSuccessfulSyncAt = (value?: number) => {
   if (typeof window === 'undefined') {
@@ -112,11 +130,12 @@ export const setLastSuccessfulSyncAt = (value?: number) => {
 };
 
 if (runtimeState.lastSyncAt === undefined) {
-  const lastSyncAt = getLastSyncAt();
+  const lastSyncAt = getLastAttemptAt();
   const lastSuccessfulSyncAt = getLastSuccessfulSyncAt();
   runtimeState = {
     ...runtimeState,
     lastSyncAt,
+    lastAttemptAt: lastSyncAt,
     lastSuccessfulSyncAt,
   };
 }

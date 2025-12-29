@@ -46,6 +46,7 @@ const normalizeBlock = (block: Block) => ({
   createdAt: block.createdAt ?? null,
   language: block.language ?? null,
   taskId: block.taskId ?? null,
+  meta: block.meta ?? null,
 });
 
 const serializeBlocks = (blocks: Block[] | undefined) =>

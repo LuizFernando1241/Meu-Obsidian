@@ -43,6 +43,8 @@ export const syncNow = async (
       lastWriteAt: Date.now(),
       items: localSnapshot.items,
       tombstones: localSnapshot.tombstones,
+      views: localSnapshot.views,
+      schemas: localSnapshot.schemas,
     };
 
     const { merged, pushNeeded } = mergeVaults(localVault, remoteVault);

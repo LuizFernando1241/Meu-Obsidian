@@ -4,7 +4,7 @@ const GIST_API = 'https://api.github.com/gists';
 const DEFAULT_FILENAME = 'vault.json';
 
 const DEFAULT_VAULT_TEXT = JSON.stringify(
-  { schema: 1, items: [], tombstones: [] },
+  { schema: 1, items: [], tombstones: [], views: [], schemas: [] },
   null,
   2,
 );

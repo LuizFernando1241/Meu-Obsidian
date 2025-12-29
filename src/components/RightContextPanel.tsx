@@ -6,11 +6,16 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Drawer,
   IconButton,
   List,
   ListItemButton,
   ListItemText,
+  MenuItem,
   Stack,
   TextField,
   Toolbar,
@@ -18,12 +23,19 @@ import {
 } from '@mui/material';
 import { format } from 'date-fns';
 import { useMatch, useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 import LocalGraph from './graph/LocalGraph';
-import { parseWikilinks } from '../app/wikilinks';
+import PropertiesEditor from './PropertiesEditor';
+import { findWikilinkSnippets, parseWikilinks } from '../app/wikilinks';
+import { db } from '../data/db';
+import { filterActiveNodes } from '../data/deleted';
 import { useBacklinks, useItem, useOutgoingLinks } from '../data/hooks';
+import { resolveSchemaIdForNode } from '../data/schemaResolve';
+import { buildDefaultSchema } from '../data/schemaDefaults';
+import { blocksToMarkdown, parseMarkdownToBlocks } from '../editor/markdownToBlocks';
 import { deleteNode, resolveTitleToId, updateItemProps } from '../data/repo';
-import type { NodeType } from '../data/types';
+import type { Block, Node, NodeType } from '../data/types';
 import ConfirmDialog from './ConfirmDialog';
 
 type RightContextPanelProps = {
@@ -53,10 +65,58 @@ export default function RightContextPanel({
   const item = useItem(itemId);
   const outgoingLinks = useOutgoingLinks(itemId);
   const backlinks = useBacklinks(itemId);
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
+  const nodesById = React.useMemo(
+    () => new Map(nodes.map((node) => [node.id, node])),
+    [nodes],
+  );
+  const schemas = useLiveQuery(() => db.schemas.toArray(), []) ?? [];
+  const schemasById = React.useMemo(
+    () => new Map(schemas.map((schema) => [schema.id, schema])),
+    [schemas],
+  );
+  const fallbackSchema = React.useMemo(() => buildDefaultSchema(Date.now()), []);
+  const effectiveSchema = React.useMemo(() => {
+    if (!item) {
+      return fallbackSchema;
+    }
+    const schemaId = resolveSchemaIdForNode(item.id, nodesById);
+    return schemasById.get(schemaId) ?? schemasById.get('global') ?? fallbackSchema;
+  }, [fallbackSchema, item, nodesById, schemasById]);
+  const schemaOptions = React.useMemo(
+    () =>
+      [...schemas].sort((left, right) => {
+        const leftName = left.name?.trim() ? left.name : left.id;
+        const rightName = right.name?.trim() ? right.name : right.id;
+        return leftName.localeCompare(rightName);
+      }),
+    [schemas],
+  );
+  const folderSchemaId =
+    item?.nodeType === 'folder' &&
+    item.props &&
+    typeof (item.props as Record<string, unknown>).schemaId === 'string'
+      ? String((item.props as Record<string, unknown>).schemaId)
+      : '';
+  const folderTemplateBlocks =
+    item?.nodeType === 'folder' &&
+    item.props &&
+    Array.isArray((item.props as Record<string, unknown>).templateBlocks)
+      ? ((item.props as Record<string, unknown>).templateBlocks as Block[])
+      : [];
+  const folderTemplateMarkdown =
+    item?.nodeType === 'folder' &&
+    item.props &&
+    typeof (item.props as Record<string, unknown>).templateMarkdown === 'string'
+      ? String((item.props as Record<string, unknown>).templateMarkdown)
+      : '';
   const [tagInput, setTagInput] = React.useState('');
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pendingLinksCount, setPendingLinksCount] = React.useState(0);
   const prevItemIdRef = React.useRef(itemId);
+  const [templateDialogOpen, setTemplateDialogOpen] = React.useState(false);
+  const [templateDraft, setTemplateDraft] = React.useState('');
 
   React.useEffect(() => {
     setTagInput('');
@@ -170,6 +230,76 @@ export default function RightContextPanel({
     }
   };
 
+  const handlePropsChange = async (nextProps: Record<string, unknown>) => {
+    if (!item || !itemId) {
+      return;
+    }
+    try {
+      await updateItemProps(itemId, { props: nextProps });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleFolderSchemaChange = async (schemaId: string) => {
+    if (!item || item.nodeType !== 'folder' || !itemId) {
+      return;
+    }
+    const currentProps =
+      item.props && typeof item.props === 'object'
+        ? (item.props as Record<string, unknown>)
+        : {};
+    const nextProps: Record<string, unknown> = { ...currentProps };
+    if (!schemaId) {
+      delete nextProps.schemaId;
+    } else {
+      nextProps.schemaId = schemaId;
+    }
+    try {
+      await updateItemProps(itemId, { props: nextProps });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleOpenTemplateDialog = () => {
+    if (!item || item.nodeType !== 'folder') {
+      return;
+    }
+    const text =
+      folderTemplateMarkdown ||
+      (Array.isArray(folderTemplateBlocks) && folderTemplateBlocks.length > 0
+        ? blocksToMarkdown(folderTemplateBlocks)
+        : '');
+    setTemplateDraft(text);
+    setTemplateDialogOpen(true);
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!item || item.nodeType !== 'folder' || !itemId) {
+      return;
+    }
+    const currentProps =
+      item.props && typeof item.props === 'object'
+        ? (item.props as Record<string, unknown>)
+        : {};
+    const nextProps: Record<string, unknown> = { ...currentProps };
+    if (!templateDraft.trim()) {
+      delete nextProps.templateMarkdown;
+      delete nextProps.templateBlocks;
+    } else {
+      const parsedBlocks = parseMarkdownToBlocks(templateDraft);
+      nextProps.templateMarkdown = templateDraft;
+      nextProps.templateBlocks = parsedBlocks;
+    }
+    try {
+      await updateItemProps(itemId, { props: nextProps });
+      setTemplateDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const handleTagKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -191,22 +321,50 @@ export default function RightContextPanel({
     }
   };
 
+  const getBacklinkSnippet = React.useCallback(
+    (source: Node) => {
+      if (!item || source.nodeType !== 'note' || !Array.isArray(source.content)) {
+        return '';
+      }
+      const target = { id: item.id, title: item.title ?? '' };
+      for (const block of source.content) {
+        const text = block.text ?? '';
+        const snippets = findWikilinkSnippets(text, target);
+        if (snippets.length > 0) {
+          return snippets[0].snippet;
+        }
+      }
+      return '';
+    },
+    [item],
+  );
+
   const tagList = Array.isArray(item?.tags) ? item?.tags : [];
   const formatDateTime = (value?: number) =>
     typeof value === 'number' && Number.isFinite(value)
       ? format(new Date(value), 'yyyy-MM-dd HH:mm')
       : '-';
+  const drawerAnchor = isMobile ? 'bottom' : 'right';
+  const drawerVariant = isMobile ? 'temporary' : 'persistent';
+  const paperSx = isMobile
+    ? {
+        width: '100%',
+        height: '70vh',
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+      }
+    : { width };
 
   return (
     <Drawer
-      anchor="right"
-      variant={isMobile ? 'temporary' : 'persistent'}
+      anchor={drawerAnchor}
+      variant={drawerVariant}
       open={open}
       onClose={onClose}
       ModalProps={{ keepMounted: true }}
-      PaperProps={{ sx: { width } }}
+      PaperProps={{ sx: paperSx }}
     >
-      <Toolbar />
+      {!isMobile && <Toolbar />}
       <Box sx={{ px: 2, pb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Typography variant="h6">Propriedades</Typography>
@@ -241,6 +399,68 @@ export default function RightContextPanel({
               >
                 {item.favorite ? <Star /> : <StarBorder />}
               </IconButton>
+            </Stack>
+            <Divider />
+            {item.nodeType === 'folder' && (
+              <>
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">Schema da pasta</Typography>
+                  <TextField
+                    select
+                    size="small"
+                    label="Schema"
+                    value={folderSchemaId}
+                    onChange={(event) => handleFolderSchemaChange(event.target.value)}
+                    fullWidth
+                  >
+                    <MenuItem value="">Herdar do pai (padrao)</MenuItem>
+                    {schemaOptions.map((schema) => (
+                      <MenuItem key={schema.id} value={schema.id}>
+                        {schema.name?.trim() ? schema.name : schema.id}
+                        {schema.id === 'global' ? ' (Global)' : ''}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => navigate('/settings#schemas')}
+                    sx={{ alignSelf: 'flex-start' }}
+                  >
+                    Gerenciar schemas
+                  </Button>
+                </Stack>
+                <Divider />
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">Template da pasta</Typography>
+                  {folderTemplateMarkdown || folderTemplateBlocks.length > 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      {folderTemplateBlocks.length} bloco(s) no template.
+                    </Typography>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Nenhum template definido.
+                    </Typography>
+                  )}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleOpenTemplateDialog}
+                    sx={{ alignSelf: 'flex-start' }}
+                  >
+                    Editar template da pasta
+                  </Button>
+                </Stack>
+                <Divider />
+              </>
+            )}
+            <Stack spacing={1}>
+              <Typography variant="subtitle2">Properties</Typography>
+              <PropertiesEditor
+                node={item}
+                onChange={handlePropsChange}
+                schema={effectiveSchema}
+              />
             </Stack>
             <Divider />
             <Stack spacing={1}>
@@ -322,7 +542,10 @@ export default function RightContextPanel({
                       key={link.id}
                       onClick={() => navigate(`/item/${link.id}`)}
                     >
-                      <ListItemText primary={link.title || 'Sem titulo'} />
+                      <ListItemText
+                        primary={link.title || 'Sem titulo'}
+                        secondary={getBacklinkSnippet(link) || undefined}
+                      />
                     </ListItemButton>
                   ))}
                 </List>
@@ -352,12 +575,41 @@ export default function RightContextPanel({
       <ConfirmDialog
         open={confirmOpen}
         title="Excluir item?"
-        description="Esta acao nao pode ser desfeita."
+        description="O item sera movido para a lixeira."
         confirmLabel="Excluir"
         confirmColor="error"
         onConfirm={handleDeleteItem}
         onClose={() => setConfirmOpen(false)}
       />
+      <Dialog
+        open={templateDialogOpen}
+        onClose={() => setTemplateDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Template da pasta</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Use markdown simples. O texto sera convertido em blocos ao salvar.
+            </Typography>
+            <TextField
+              value={templateDraft}
+              onChange={(event) => setTemplateDraft(event.target.value)}
+              multiline
+              minRows={8}
+              placeholder="Ex: # Resumo\n\n- [ ] Primeira tarefa"
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTemplateDialogOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={handleSaveTemplate}>
+            Salvar template
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Drawer>
   );
 }

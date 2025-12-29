@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 import { db } from './db';
-import { createFolder, createNote } from './repo';
+import { createFolder, createNote, ensureDefaultSchema } from './repo';
 import type { Block } from './types';
 
 const makeParagraph = (text: string): Block => ({
@@ -13,6 +13,7 @@ const makeParagraph = (text: string): Block => ({
 const makeContent = (text: string) => [makeParagraph(text)];
 
 export const ensureSeedData = async () => {
+  await ensureDefaultSchema();
   const count = await db.items.count();
   if (count > 0) {
     return;

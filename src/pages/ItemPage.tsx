@@ -24,11 +24,16 @@ import { parseWikilinks } from '../app/wikilinks';
 import LoadingState from '../components/LoadingState';
 import MoveToDialog from '../components/dialogs/MoveToDialog';
 import RenameDialog from '../components/dialogs/RenameDialog';
+import SnapshotsDialog from '../components/dialogs/SnapshotsDialog';
 import Editor from '../components/editor/Editor';
 import { useEditorHistory } from '../components/editor/useEditorHistory';
 import { useNotifier } from '../components/Notifier';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { useItem } from '../data/hooks';
+import { filterActiveNodes } from '../data/deleted';
+import { resolveSchemaIdForNode } from '../data/schemaResolve';
 import {
+  createNote,
   getItem,
   getItemsByIds,
   moveNode,
@@ -36,12 +41,15 @@ import {
   renameNode,
   resolveTitleToId,
   updateItemContent,
+  updateItemProps,
 } from '../data/repo';
 import type { Block, BlockType, Node as DataNode, NodeType } from '../data/types';
 import { db } from '../data/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import FolderPage from './FolderPage';
 import { getPath } from '../vault/path';
+import PropertiesEditor from '../components/PropertiesEditor';
+import { buildDefaultSchema } from '../data/schemaDefaults';
 
 const TYPE_LABELS: Record<NodeType, string> = {
   note: 'Nota',
@@ -64,6 +72,40 @@ const BLOCK_TYPES: BlockType[] = [
 const isBlockType = (value: string | undefined): value is BlockType =>
   !!value && BLOCK_TYPES.includes(value as BlockType);
 
+const normalizeTaskMeta = (
+  value: Block['meta'] | undefined,
+  legacyPriority?: number | null,
+): Block['meta'] | undefined => {
+  const meta = value && typeof value === 'object' ? value : undefined;
+  const rawPriority = meta?.priority;
+  const rawStatus = meta?.status;
+  const rawRecurrence = meta?.recurrence;
+  const priority =
+    rawPriority === 'P1' || rawPriority === 'P2' || rawPriority === 'P3'
+      ? rawPriority
+      : legacyPriority === 1
+        ? 'P1'
+        : legacyPriority === 2
+          ? 'P2'
+          : legacyPriority === 3
+            ? 'P3'
+            : undefined;
+  const status =
+    rawStatus === 'open' || rawStatus === 'doing' || rawStatus === 'waiting'
+      ? rawStatus
+      : undefined;
+  const recurrence =
+    rawRecurrence === 'weekly' || rawRecurrence === 'monthly'
+      ? rawRecurrence
+      : undefined;
+
+  if (!priority && !status && !recurrence) {
+    return undefined;
+  }
+
+  return { priority, status, recurrence };
+};
+
 const makeBlock = (text = ''): Block => ({
   id: uuidv4(),
   type: 'paragraph',
@@ -84,23 +126,32 @@ const normalizeBlock = (block: Block): Block => {
     normalized.language = undefined;
     normalized.taskId = undefined;
     normalized.due = undefined;
+    normalized.snoozedUntil = undefined;
+    normalized.originalDue = undefined;
     normalized.doneAt = undefined;
     normalized.priority = undefined;
     normalized.tags = undefined;
     normalized.createdAt = undefined;
+    normalized.meta = undefined;
     return normalized;
   }
 
   if (type === 'checklist') {
     normalized.checked = normalized.checked ?? false;
+    normalized.meta = normalizeTaskMeta(normalized.meta, normalized.priority ?? null);
+    normalized.snoozedUntil = normalized.snoozedUntil ?? null;
+    normalized.originalDue = normalized.originalDue ?? null;
   } else {
     normalized.checked = undefined;
     normalized.taskId = undefined;
     normalized.due = undefined;
+    normalized.snoozedUntil = undefined;
+    normalized.originalDue = undefined;
     normalized.doneAt = undefined;
     normalized.priority = undefined;
     normalized.tags = undefined;
     normalized.createdAt = undefined;
+    normalized.meta = undefined;
   }
 
   if (type !== 'code') {
@@ -119,16 +170,19 @@ const areBlocksEqual = (left: Block[], right: Block[]) => {
   for (let i = 0; i < left.length; i += 1) {
     const a = left[i];
     const b = right[i];
-    if (
-      a.id !== b.id ||
-      a.type !== b.type ||
-      (a.text ?? '') !== (b.text ?? '') ||
-      (a.checked ?? false) !== (b.checked ?? false) ||
-      (a.language ?? '') !== (b.language ?? '') ||
-      (a.taskId ?? '') !== (b.taskId ?? '')
-    ) {
-      return false;
-    }
+      if (
+        a.id !== b.id ||
+        a.type !== b.type ||
+        (a.text ?? '') !== (b.text ?? '') ||
+        (a.checked ?? false) !== (b.checked ?? false) ||
+        (a.language ?? '') !== (b.language ?? '') ||
+        (a.taskId ?? '') !== (b.taskId ?? '') ||
+        (a.meta?.priority ?? '') !== (b.meta?.priority ?? '') ||
+        (a.meta?.status ?? '') !== (b.meta?.status ?? '') ||
+        (a.meta?.recurrence ?? '') !== (b.meta?.recurrence ?? '')
+      ) {
+        return false;
+      }
   }
   return true;
 };
@@ -140,11 +194,25 @@ export default function ItemPage() {
   const notifier = useNotifier();
   const itemId = id ?? '';
   const liveItem = useItem(itemId);
-  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
   const nodesById = React.useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
   );
+  const schemas = useLiveQuery(() => db.schemas.toArray(), []) ?? [];
+  const schemasById = React.useMemo(
+    () => new Map(schemas.map((schema) => [schema.id, schema])),
+    [schemas],
+  );
+  const fallbackSchema = React.useMemo(() => buildDefaultSchema(Date.now()), []);
+  const effectiveSchema = React.useMemo(() => {
+    if (!liveItem) {
+      return fallbackSchema;
+    }
+    const schemaId = resolveSchemaIdForNode(liveItem.id, nodesById);
+    return schemasById.get(schemaId) ?? schemasById.get('global') ?? fallbackSchema;
+  }, [fallbackSchema, liveItem, nodesById, schemasById]);
   const breadcrumbNodes = React.useMemo(
     () => (itemId ? getPath(itemId, nodesById) : []),
     [itemId, nodesById],
@@ -183,6 +251,9 @@ export default function ItemPage() {
   const [lastSavedAt, setLastSavedAt] = React.useState<number | null>(null);
   const [moveOpen, setMoveOpen] = React.useState(false);
   const [renameOpen, setRenameOpen] = React.useState(false);
+  const [snapshotsOpen, setSnapshotsOpen] = React.useState(false);
+  const [pendingLinkTitle, setPendingLinkTitle] = React.useState<string | null>(null);
+  const [creatingLink, setCreatingLink] = React.useState(false);
 
   const skipAutosaveRef = React.useRef(true);
   const changeCounterRef = React.useRef(0);
@@ -612,7 +683,16 @@ export default function ItemPage() {
               </Box>,
             );
           } else {
-            nodes.push(link.title);
+            nodes.push(
+              <Link
+                key={`${link.title}-${index}`}
+                component="button"
+                onClick={() => handleRequestCreateLink(link.title)}
+                sx={{ mx: 0.5 }}
+              >
+                {link.title}
+              </Link>,
+            );
           }
         } else {
           nodes.push(link.raw);
@@ -731,6 +811,47 @@ export default function ItemPage() {
     }
   };
 
+  const handlePropsChange = async (nextProps: Record<string, unknown>) => {
+    if (!itemId || !liveItem) {
+      return;
+    }
+    try {
+      await updateItemProps(itemId, { props: nextProps });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleRequestCreateLink = (title: string) => {
+    if (!title.trim()) {
+      return;
+    }
+    setPendingLinkTitle(title.trim());
+  };
+
+  const handleConfirmCreateLink = async () => {
+    if (!pendingLinkTitle) {
+      return;
+    }
+    setCreatingLink(true);
+    try {
+      const created = await createNote({
+        title: pendingLinkTitle,
+        parentId: liveItem?.parentId,
+      });
+      if (itemId && liveItem && resolvedType === 'note') {
+        const linksTo = await recomputeLinksToFromBlocks(blocksRef.current);
+        await updateItemProps(itemId, { linksTo });
+      }
+      setPendingLinkTitle(null);
+      navigate(`/item/${created.id}`, { state: { focusEditor: true } });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
   if (loading) {
     return <LoadingState message="Carregando item..." />;
   }
@@ -811,6 +932,9 @@ export default function ItemPage() {
               />
             </Box>
             <Stack direction="row" spacing={1}>
+              <Button variant="outlined" onClick={() => setSnapshotsOpen(true)}>
+                Historico
+              </Button>
               <Button variant="outlined" onClick={() => setMoveOpen(true)}>
                 Mover
               </Button>
@@ -841,6 +965,14 @@ export default function ItemPage() {
               </IconButton>
             </Stack>
           </Stack>
+          {liveItem && (
+            <PropertiesEditor
+              node={liveItem}
+              onChange={handlePropsChange}
+              variant="compact"
+              schema={effectiveSchema}
+            />
+          )}
         </Stack>
 
         <Stack spacing={2}>
@@ -879,6 +1011,20 @@ export default function ItemPage() {
         title="Renomear nota"
         onClose={() => setRenameOpen(false)}
         onConfirm={handleConfirmRename}
+      />
+      <SnapshotsDialog
+        open={snapshotsOpen}
+        nodeId={itemId}
+        onClose={() => setSnapshotsOpen(false)}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingLinkTitle)}
+        title="Criar nota?"
+        description={`Criar nota "${pendingLinkTitle ?? ''}" agora?`}
+        confirmLabel="Criar nota"
+        onConfirm={handleConfirmCreateLink}
+        onClose={() => setPendingLinkTitle(null)}
+        isLoading={creatingLink}
       />
     </Box>
   );

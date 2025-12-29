@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BUILD_TIME, GIT_SHA } from '../app/buildInfo';
 import { getLastSyncAt } from '../sync/syncState';
 import { db } from './db';
+import { ensureDefaultSchema } from './repo';
 import type {
   Block,
   BlockType,
@@ -10,7 +11,13 @@ import type {
   LegacyTaskFields,
   Node,
   NodeType,
+  PropertyDef,
+  PropertySchema,
+  PropertyType,
   Recurrence,
+  SavedView,
+  SavedViewQuery,
+  SavedViewSort,
 } from './types';
 
 export type BackupMeta = {
@@ -23,6 +30,9 @@ export type BackupMeta = {
 export type BackupPayload = {
   meta: BackupMeta;
   items: Node[];
+  views?: SavedView[];
+  schemas?: PropertySchema[];
+  schema?: PropertySchema;
 };
 
 export type VaultSyncMeta = {
@@ -40,6 +50,9 @@ export type VaultBackup = {
   schemaVersion: number;
   exportedAt: number;
   nodes: Node[];
+  views?: SavedView[];
+  schemas?: PropertySchema[];
+  schema?: PropertySchema;
   app: VaultAppMeta;
   sync?: VaultSyncMeta;
 };
@@ -70,6 +83,280 @@ const allowedBlockTypes: BlockType[] = [
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
+
+const normalizeStringArray = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const filtered = value.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim(),
+  );
+  return filtered.length > 0 ? filtered : undefined;
+};
+
+const normalizeViewQuery = (value: unknown): SavedViewQuery => {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const type = value.type;
+  const due = value.due;
+  const normalizedDue =
+    isRecord(due) &&
+    (typeof due.from === 'string' ||
+      typeof due.to === 'string' ||
+      typeof due.missing === 'boolean')
+      ? {
+          from: typeof due.from === 'string' ? due.from : undefined,
+          to: typeof due.to === 'string' ? due.to : undefined,
+          missing: typeof due.missing === 'boolean' ? due.missing : undefined,
+        }
+      : undefined;
+
+  const updatedSinceDays =
+    typeof value.updatedSinceDays === 'number' && Number.isFinite(value.updatedSinceDays)
+      ? Math.max(0, Math.floor(value.updatedSinceDays))
+      : undefined;
+
+  return {
+    text: typeof value.text === 'string' ? value.text : undefined,
+    type: type === 'note' || type === 'folder' || type === 'any' ? type : undefined,
+    rootId: typeof value.rootId === 'string' ? value.rootId : undefined,
+    pathPrefix: typeof value.pathPrefix === 'string' ? value.pathPrefix : undefined,
+    tags: normalizeStringArray(value.tags),
+    status: normalizeStringArray(value.status),
+    priority: normalizeStringArray(value.priority),
+    favoritesOnly:
+      typeof value.favoritesOnly === 'boolean' ? value.favoritesOnly : undefined,
+    due: normalizedDue,
+    updatedSinceDays,
+  };
+};
+
+const normalizeViewSort = (value: unknown): SavedViewSort | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const by = value.by;
+  const dir = value.dir;
+  const validBy =
+    by === 'updatedAt' ||
+    by === 'title' ||
+    by === 'type' ||
+    by === 'path' ||
+    by === 'status' ||
+    by === 'due' ||
+    by === 'priority';
+  const validDir = dir === 'asc' || dir === 'desc';
+  if (!validBy || !validDir) {
+    return undefined;
+  }
+  return { by, dir };
+};
+
+const normalizeViewTable = (value: unknown): SavedView['table'] | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const rawColumns = Array.isArray(value.columns)
+    ? value.columns.filter((entry) => typeof entry === 'string')
+    : [];
+  const allowed = new Set([
+    'title',
+    'type',
+    'path',
+    'status',
+    'priority',
+    'due',
+    'updatedAt',
+  ]);
+  const columns = rawColumns.filter((entry) => allowed.has(entry));
+  const compact = typeof value.compact === 'boolean' ? value.compact : undefined;
+  if (columns.length === 0 && compact === undefined) {
+    return undefined;
+  }
+  return {
+    columns: columns.length > 0 ? columns : undefined,
+    compact,
+  };
+};
+
+const normalizeViewKanban = (value: unknown): SavedView['kanban'] | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const rawColumns = Array.isArray(value.columns)
+    ? value.columns.filter((entry) => typeof entry === 'string')
+    : [];
+  const columns = rawColumns.map((entry) => entry.trim()).filter(Boolean);
+  const includeEmptyStatus =
+    typeof value.includeEmptyStatus === 'boolean' ? value.includeEmptyStatus : undefined;
+  if (columns.length === 0 && includeEmptyStatus === undefined) {
+    return undefined;
+  }
+  return {
+    columns: columns.length > 0 ? columns : [],
+    includeEmptyStatus,
+  };
+};
+
+const normalizeViewCalendar = (value: unknown): SavedView['calendar'] | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const dateField = value.dateField === 'due' ? 'due' : undefined;
+  const rawWeekStartsOn = value.weekStartsOn;
+  const weekStartsOn = rawWeekStartsOn === 0 || rawWeekStartsOn === 1 ? rawWeekStartsOn : undefined;
+  const showUndated = typeof value.showUndated === 'boolean' ? value.showUndated : undefined;
+  if (!dateField && weekStartsOn === undefined && showUndated === undefined) {
+    return undefined;
+  }
+  return {
+    dateField,
+    weekStartsOn,
+    showUndated,
+  };
+};
+
+const normalizeView = (value: unknown, index: number): SavedView | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id =
+    typeof value.id === 'string' && value.id.trim() ? value.id : uuidv4();
+  const name =
+    typeof value.name === 'string' && value.name.trim()
+      ? value.name.trim()
+      : `View ${index + 1}`;
+  const query = normalizeViewQuery(value.query);
+  const sort = normalizeViewSort(value.sort);
+  const displayMode =
+    value.displayMode === 'list' ||
+    value.displayMode === 'table' ||
+    value.displayMode === 'kanban' ||
+    value.displayMode === 'calendar'
+      ? value.displayMode
+      : undefined;
+  const table = normalizeViewTable(value.table);
+  const kanban = normalizeViewKanban(value.kanban);
+  const calendar = normalizeViewCalendar(value.calendar);
+  const createdAt =
+    typeof value.createdAt === 'number' && Number.isFinite(value.createdAt)
+      ? value.createdAt
+      : Date.now();
+  const updatedAt =
+    typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
+      ? value.updatedAt
+      : createdAt;
+
+  return {
+    id,
+    name,
+    query,
+    sort,
+    displayMode,
+    table,
+    kanban,
+    calendar,
+    createdAt,
+    updatedAt,
+  };
+};
+
+const allowedPropertyTypes: PropertyType[] = [
+  'text',
+  'number',
+  'checkbox',
+  'date',
+  'select',
+  'multi_select',
+];
+
+const normalizePropertyDef = (value: unknown, index: number): PropertyDef | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const key = typeof value.key === 'string' && value.key.trim() ? value.key.trim() : '';
+  if (!key) {
+    return null;
+  }
+  const name =
+    typeof value.name === 'string' && value.name.trim()
+      ? value.name.trim()
+      : `Property ${index + 1}`;
+  const type = value.type;
+  const normalizedType = allowedPropertyTypes.includes(type as PropertyType)
+    ? (type as PropertyType)
+    : 'text';
+  const options = normalizeStringArray(value.options);
+  const indexed = typeof value.indexed === 'boolean' ? value.indexed : undefined;
+  return {
+    key,
+    name,
+    type: normalizedType,
+    options,
+    defaultValue: value.defaultValue,
+    indexed,
+  };
+};
+
+const normalizeSchemaRecord = (value: unknown, index: number): PropertySchema | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const rawId = typeof value.id === 'string' ? value.id.trim() : '';
+  if (!rawId) {
+    return null;
+  }
+  const name =
+    typeof value.name === 'string' && value.name.trim()
+      ? value.name.trim()
+      : rawId === 'global'
+        ? 'Global'
+        : `Schema ${index + 1}`;
+  const version =
+    typeof value.version === 'number' && Number.isFinite(value.version)
+      ? Math.max(1, Math.floor(value.version))
+      : 1;
+  const updatedAt =
+    typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
+      ? value.updatedAt
+      : Date.now();
+  const rawProperties = Array.isArray(value.properties) ? value.properties : [];
+  const properties = rawProperties
+    .map((prop, propIndex) => normalizePropertyDef(prop, propIndex))
+    .filter((prop): prop is PropertyDef => Boolean(prop));
+  return {
+    id: rawId,
+    name,
+    version,
+    properties,
+    updatedAt,
+  };
+};
+
+const normalizeSchemasFromPayload = (payload: unknown): PropertySchema[] => {
+  if (!isRecord(payload)) {
+    return [];
+  }
+  const rawSchemas = Array.isArray(payload.schemas)
+    ? payload.schemas
+    : isRecord(payload.schema)
+      ? [payload.schema]
+      : [];
+  return rawSchemas
+    .map((schema, index) => normalizeSchemaRecord(schema, index))
+    .filter((schema): schema is PropertySchema => Boolean(schema));
+};
+
+const extractViewsFromPayload = (payload: unknown): SavedView[] => {
+  if (!isRecord(payload)) {
+    return [];
+  }
+  const rawViews = Array.isArray(payload.views) ? payload.views : [];
+  return rawViews
+    .map((view, index) => normalizeView(view, index))
+    .filter((view): view is SavedView => Boolean(view));
+};
 
 const readSyncMeta = (): VaultSyncMeta | undefined => {
   if (typeof window === 'undefined') {
@@ -120,22 +407,78 @@ const makeParagraph = (): Block => ({
   text: '',
 });
 
+const mapLegacyPriority = (value?: number | null) => {
+  if (value === 1) {
+    return 'P1';
+  }
+  if (value === 2) {
+    return 'P2';
+  }
+  if (value === 3) {
+    return 'P3';
+  }
+  return undefined;
+};
+
 const normalizeBlock = (block: Partial<Block>): Block => {
   const type = allowedBlockTypes.includes(block.type as BlockType)
     ? (block.type as BlockType)
     : 'paragraph';
+  const rawMeta = block.meta;
+  const legacyPriority = typeof block.priority === 'number' ? block.priority : null;
+  const meta = (() => {
+    if (rawMeta && typeof rawMeta === 'object') {
+      const next = {
+        priority:
+          (rawMeta as { priority?: unknown }).priority === 'P1' ||
+          (rawMeta as { priority?: unknown }).priority === 'P2' ||
+          (rawMeta as { priority?: unknown }).priority === 'P3'
+            ? (rawMeta as { priority?: 'P1' | 'P2' | 'P3' }).priority
+            : mapLegacyPriority(legacyPriority),
+        status:
+          (rawMeta as { status?: unknown }).status === 'open' ||
+          (rawMeta as { status?: unknown }).status === 'doing' ||
+          (rawMeta as { status?: unknown }).status === 'waiting'
+            ? (rawMeta as { status?: 'open' | 'doing' | 'waiting' }).status
+            : undefined,
+        recurrence:
+          (rawMeta as { recurrence?: unknown }).recurrence === 'weekly' ||
+          (rawMeta as { recurrence?: unknown }).recurrence === 'monthly'
+            ? (rawMeta as { recurrence?: 'weekly' | 'monthly' }).recurrence
+            : undefined,
+      };
+      if (!next.priority && !next.status && !next.recurrence) {
+        return undefined;
+      }
+      return next;
+    }
+    if (legacyPriority) {
+      const priority = mapLegacyPriority(legacyPriority);
+      return priority ? { priority } : undefined;
+    }
+    return undefined;
+  })();
   return {
     id: typeof block.id === 'string' && block.id ? block.id : uuidv4(),
     type,
     text: typeof block.text === 'string' ? block.text : '',
     checked: typeof block.checked === 'boolean' ? block.checked : undefined,
     due: typeof block.due === 'string' ? block.due : null,
+    snoozedUntil:
+      typeof (block as { snoozedUntil?: unknown }).snoozedUntil === 'string'
+        ? (block as { snoozedUntil?: string }).snoozedUntil
+        : null,
+    originalDue:
+      typeof (block as { originalDue?: unknown }).originalDue === 'string'
+        ? (block as { originalDue?: string }).originalDue
+        : null,
     doneAt: typeof block.doneAt === 'number' ? block.doneAt : null,
     priority: typeof block.priority === 'number' ? block.priority : null,
     tags: Array.isArray(block.tags) ? block.tags.filter(Boolean) : null,
     createdAt: typeof block.createdAt === 'number' ? block.createdAt : undefined,
     language: typeof block.language === 'string' ? block.language : undefined,
     taskId: typeof block.taskId === 'string' && block.taskId ? block.taskId : undefined,
+    meta,
   };
 };
 
@@ -334,54 +677,66 @@ export type ExportVaultResult = {
   nodeCount: number;
 };
 
-export const exportVaultJson = async (): Promise<ExportVaultResult> => {
+export const buildVaultBackupPayload = async (): Promise<VaultBackup> => {
   const nodes = await db.items.toArray();
-  const payload: VaultBackup = {
+  const views = await db.views.toArray();
+  const schemas = await db.schemas.toArray();
+  return {
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: Date.now(),
     nodes,
+    views,
+    schemas,
     app: {
       gitSha: GIT_SHA,
       buildTime: BUILD_TIME,
     },
     sync: readSyncMeta(),
   };
+};
+
+export const exportVaultJson = async (): Promise<ExportVaultResult> => {
+  const payload = await buildVaultBackupPayload();
   const filename = buildExportFilename();
   downloadJson(payload, filename);
-  return { filename, nodeCount: nodes.length };
+  return { filename, nodeCount: payload.nodes.length };
 };
 
 export type ImportVaultResult =
   | { mode: 'replace'; imported: number }
   | { mode: 'merge'; imported: number; added: number; updated: number };
 
-export const importVaultJson = async (
-  file: File,
+export const importVaultPayload = async (
+  payload: unknown,
   mode: 'replace' | 'merge',
 ): Promise<ImportVaultResult> => {
-  let payload: unknown;
-  try {
-    const text = await file.text();
-    payload = JSON.parse(text);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Falha ao ler arquivo: ${message}`);
-  }
-
   const extracted = extractNodesFromPayload(payload);
   if (!extracted.ok) {
     throw new Error(extracted.error);
   }
+  const views = extractViewsFromPayload(payload);
+  const schemas = normalizeSchemasFromPayload(payload);
 
   const items = extracted.nodes.map((item) => normalizeNode(item));
   if (mode === 'replace') {
-    await db.transaction('rw', db.items, db.tombstones, async () => {
+    await db.transaction('rw', db.items, db.tombstones, db.views, db.schemas, async () => {
       await db.items.clear();
       await db.tombstones.clear();
+      await db.views.clear();
+      await db.schemas.clear();
       if (items.length > 0) {
         await db.items.bulkAdd(items);
       }
+      if (views.length > 0) {
+        await db.views.bulkAdd(views);
+      }
+      if (schemas.length > 0) {
+        await db.schemas.bulkPut(schemas);
+      }
     });
+    if (schemas.length === 0 || !schemas.some((schema) => schema.id === 'global')) {
+      await ensureDefaultSchema();
+    }
     return { mode: 'replace', imported: items.length };
   }
 
@@ -401,16 +756,81 @@ export const importVaultJson = async (
     }
   });
 
-  await db.transaction('rw', db.items, async () => {
+  const viewIds = views.map((view) => view.id);
+  const existingViews = viewIds.length > 0 ? await db.views.bulkGet(viewIds) : [];
+  const viewsToAdd: SavedView[] = [];
+  const viewsToPut: SavedView[] = [];
+
+  views.forEach((view, index) => {
+    const current = existingViews[index];
+    if (!current) {
+      viewsToAdd.push(view);
+      return;
+    }
+    if ((view.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      viewsToPut.push(view);
+    }
+  });
+
+  const schemaIds = schemas.map((schema) => schema.id);
+  const existingSchemas = schemaIds.length > 0 ? await db.schemas.bulkGet(schemaIds) : [];
+  const schemasToAdd: PropertySchema[] = [];
+  const schemasToPut: PropertySchema[] = [];
+
+  schemas.forEach((schema, index) => {
+    const current = existingSchemas[index];
+    if (!current) {
+      schemasToAdd.push(schema);
+      return;
+    }
+    if ((schema.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      schemasToPut.push(schema);
+    }
+  });
+
+  await db.transaction('rw', db.items, db.views, db.schemas, async () => {
     if (toAdd.length > 0) {
       await db.items.bulkAdd(toAdd);
     }
     if (toPut.length > 0) {
       await db.items.bulkPut(toPut);
     }
+    if (viewsToAdd.length > 0) {
+      await db.views.bulkAdd(viewsToAdd);
+    }
+    if (viewsToPut.length > 0) {
+      await db.views.bulkPut(viewsToPut);
+    }
+    if (schemasToAdd.length > 0) {
+      await db.schemas.bulkAdd(schemasToAdd);
+    }
+    if (schemasToPut.length > 0) {
+      await db.schemas.bulkPut(schemasToPut);
+    }
   });
+  await ensureDefaultSchema();
 
-  return { mode: 'merge', imported: items.length, added: toAdd.length, updated: toPut.length };
+  return {
+    mode: 'merge',
+    imported: items.length,
+    added: toAdd.length,
+    updated: toPut.length,
+  };
+};
+
+export const importVaultJson = async (
+  file: File,
+  mode: 'replace' | 'merge',
+): Promise<ImportVaultResult> => {
+  let payload: unknown;
+  try {
+    const text = await file.text();
+    payload = JSON.parse(text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Falha ao ler arquivo: ${message}`);
+  }
+  return importVaultPayload(payload, mode);
 };
 
 export const resetLocalData = async () => {
@@ -419,19 +839,26 @@ export const resetLocalData = async () => {
     window.localStorage.removeItem('vault_expanded_folders');
     window.localStorage.removeItem('mf_sync_last_at');
     window.localStorage.removeItem('mf_sync_last_success_at');
+    window.localStorage.removeItem('mf_sync_last_attempt_at');
+    window.localStorage.removeItem('mf_auto_backup_enabled');
+    window.localStorage.removeItem('mf_auto_backup_interval_hours');
+    window.localStorage.removeItem('mf_auto_backup_retention');
+    window.localStorage.removeItem('mf_auto_backup_last_at');
   }
   await db.open();
 };
 
 export const exportAll = async (): Promise<BackupPayload> => {
   const items = await db.items.toArray();
+  const views = await db.views.toArray();
+  const schemas = await db.schemas.toArray();
   const meta: BackupMeta = {
     appName: APP_NAME,
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
     itemCount: items.length,
   };
-  return { meta, items };
+  return { meta, items, views, schemas };
 };
 
 export const downloadJson = (data: unknown, filename: string) => {
@@ -450,18 +877,33 @@ export const validateBackup = (payload: unknown) => validateVaultBackup(payload)
 
 export const importReplaceAll = async (payload: BackupPayload) => {
   const items = payload.items.map((item) => normalizeNode(item));
-  await db.transaction('rw', db.items, db.tombstones, async () => {
+  const views = extractViewsFromPayload(payload);
+  const schemas = normalizeSchemasFromPayload(payload);
+  await db.transaction('rw', db.items, db.tombstones, db.views, db.schemas, async () => {
     await db.items.clear();
     await db.tombstones.clear();
+    await db.views.clear();
+    await db.schemas.clear();
     if (items.length > 0) {
       await db.items.bulkAdd(items);
     }
+    if (views.length > 0) {
+      await db.views.bulkAdd(views);
+    }
+    if (schemas.length > 0) {
+      await db.schemas.bulkPut(schemas);
+    }
   });
+  if (schemas.length === 0 || !schemas.some((schema) => schema.id === 'global')) {
+    await ensureDefaultSchema();
+  }
   return { imported: items.length };
 };
 
 export const importMerge = async (payload: BackupPayload) => {
   const items = payload.items.map((item) => normalizeNode(item));
+  const views = extractViewsFromPayload(payload);
+  const schemas = normalizeSchemasFromPayload(payload);
   const ids = items.map((item) => item.id);
   const existing = await db.items.bulkGet(ids);
   const toAdd: Node[] = [];
@@ -478,14 +920,59 @@ export const importMerge = async (payload: BackupPayload) => {
     }
   });
 
-  await db.transaction('rw', db.items, async () => {
+  const viewIds = views.map((view) => view.id);
+  const existingViews = viewIds.length > 0 ? await db.views.bulkGet(viewIds) : [];
+  const viewsToAdd: SavedView[] = [];
+  const viewsToPut: SavedView[] = [];
+
+  views.forEach((view, index) => {
+    const current = existingViews[index];
+    if (!current) {
+      viewsToAdd.push(view);
+      return;
+    }
+    if (view.updatedAt > current.updatedAt) {
+      viewsToPut.push(view);
+    }
+  });
+
+  const schemaIds = schemas.map((schema) => schema.id);
+  const existingSchemas = schemaIds.length > 0 ? await db.schemas.bulkGet(schemaIds) : [];
+  const schemasToAdd: PropertySchema[] = [];
+  const schemasToPut: PropertySchema[] = [];
+
+  schemas.forEach((schema, index) => {
+    const current = existingSchemas[index];
+    if (!current) {
+      schemasToAdd.push(schema);
+      return;
+    }
+    if (schema.updatedAt > (current.updatedAt ?? 0)) {
+      schemasToPut.push(schema);
+    }
+  });
+
+  await db.transaction('rw', db.items, db.views, db.schemas, async () => {
     if (toAdd.length > 0) {
       await db.items.bulkAdd(toAdd);
     }
     if (toPut.length > 0) {
       await db.items.bulkPut(toPut);
     }
+    if (viewsToAdd.length > 0) {
+      await db.views.bulkAdd(viewsToAdd);
+    }
+    if (viewsToPut.length > 0) {
+      await db.views.bulkPut(viewsToPut);
+    }
+    if (schemasToAdd.length > 0) {
+      await db.schemas.bulkAdd(schemasToAdd);
+    }
+    if (schemasToPut.length > 0) {
+      await db.schemas.bulkPut(schemasToPut);
+    }
   });
+  await ensureDefaultSchema();
 
   return { added: toAdd.length, updated: toPut.length };
 };

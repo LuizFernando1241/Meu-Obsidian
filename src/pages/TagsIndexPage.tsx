@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 import EmptyState from '../components/EmptyState';
 import { db } from '../data/db';
+import { filterActiveNodes } from '../data/deleted';
 import type { Node } from '../data/types';
 
 type TagStat = {
@@ -35,7 +36,8 @@ const collectTags = (items: Node[]): TagStat[] => {
 
 export default function TagsIndexPage() {
   const navigate = useNavigate();
-  const items = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const allItems = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const items = React.useMemo(() => filterActiveNodes(allItems), [allItems]);
   const tags = React.useMemo(() => collectTags(items), [items]);
 
   const handleTagClick = (value: string) => {

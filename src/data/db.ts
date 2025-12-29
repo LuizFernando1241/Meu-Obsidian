@@ -1,10 +1,21 @@
 import Dexie, { type Table } from 'dexie';
 
-import type { Item, Tombstone } from './types';
+import type {
+  AutoBackup,
+  Item,
+  NoteSnapshot,
+  PropertySchema,
+  SavedView,
+  Tombstone,
+} from './types';
 
 export class AppDB extends Dexie {
   items!: Table<Item, string>;
   tombstones!: Table<Tombstone, string>;
+  views!: Table<SavedView, string>;
+  snapshots!: Table<NoteSnapshot, string>;
+  schemas!: Table<PropertySchema, string>;
+  autoBackups!: Table<AutoBackup, string>;
 
   constructor() {
     super('mecflux_personal_os');
@@ -292,6 +303,40 @@ export class AppDB extends Dexie {
             delete item.nextActionId;
           }),
       );
+
+    this.version(8).stores({
+      items:
+        'id, nodeType, parentId, updatedAt, createdAt, title, favorite, rev, *tags, *linksTo',
+      tombstones: 'id, deletedAt, rev',
+      views: 'id, name, updatedAt, createdAt',
+    });
+
+    this.version(9).stores({
+      items:
+        'id, nodeType, parentId, updatedAt, createdAt, title, favorite, rev, *tags, *linksTo',
+      tombstones: 'id, deletedAt, rev',
+      views: 'id, name, updatedAt, createdAt',
+      snapshots: 'id, nodeId, createdAt',
+    });
+
+    this.version(10).stores({
+      items:
+        'id, nodeType, parentId, updatedAt, createdAt, title, favorite, rev, *tags, *linksTo',
+      tombstones: 'id, deletedAt, rev',
+      views: 'id, name, updatedAt, createdAt',
+      snapshots: 'id, nodeId, createdAt',
+      schemas: 'id, updatedAt, version',
+    });
+
+    this.version(11).stores({
+      items:
+        'id, nodeType, parentId, updatedAt, createdAt, title, favorite, rev, *tags, *linksTo',
+      tombstones: 'id, deletedAt, rev',
+      views: 'id, name, updatedAt, createdAt',
+      snapshots: 'id, nodeId, createdAt',
+      schemas: 'id, updatedAt, version',
+      autoBackups: 'id, createdAt, bytes',
+    });
   }
 }
 

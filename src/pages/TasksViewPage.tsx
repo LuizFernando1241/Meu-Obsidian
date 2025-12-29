@@ -10,35 +10,58 @@ import {
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
 
-import TaskList from '../components/TaskList';
+import TaskGroupedList from '../components/tasks/TaskGroupedList';
 import { useNotifier } from '../components/Notifier';
 import { db } from '../data/db';
-import { setChecklistDue, toggleChecklist } from '../data/repo';
+import { filterActiveNodes } from '../data/deleted';
+import {
+  clearChecklistSnooze,
+  setChecklistDue,
+  setChecklistSnooze,
+  toggleChecklist,
+  updateChecklistMeta,
+} from '../data/repo';
 import type { NoteNode } from '../data/types';
-import { getTodayISO } from '../tasks/date';
+import { addDaysISO, getTodayISO } from '../tasks/date';
 import { buildTaskIndex, type IndexedTask } from '../tasks/taskIndex';
 import { getTaskNotePath } from '../tasks/taskPath';
 import { buildPathCache } from '../vault/pathCache';
 
-type OrderBy = 'due' | 'title' | 'updated';
+type DueFilter = 'all' | 'none' | 'has' | 'overdue' | 'today' | 'next7';
+type StatusFilter = 'all' | 'open' | 'doing' | 'waiting';
+type PriorityFilter = 'all' | 'P1' | 'P2' | 'P3';
+type GroupMode = 'path' | 'note' | 'none';
 
-const compareByDue = (left: IndexedTask, right: IndexedTask) => {
-  if (!left.due && !right.due) {
-    return left.noteTitle.localeCompare(right.noteTitle);
-  }
-  if (!left.due) {
-    return 1;
-  }
-  if (!right.due) {
-    return -1;
-  }
-  if (left.due !== right.due) {
-    return left.due.localeCompare(right.due);
-  }
-  return left.noteTitle.localeCompare(right.noteTitle);
+const PRIORITY_ORDER: Record<string, number> = {
+  P1: 3,
+  P2: 2,
+  P3: 1,
 };
 
-const compareByTitle = (left: IndexedTask, right: IndexedTask) => {
+const compareByEffectiveDue = (left: IndexedTask, right: IndexedTask) => {
+  const leftDue = left.effectiveDue ?? null;
+  const rightDue = right.effectiveDue ?? null;
+  if (!leftDue && !rightDue) {
+    const noteCompare = left.noteTitle.localeCompare(right.noteTitle);
+    if (noteCompare !== 0) {
+      return noteCompare;
+    }
+    return left.text.localeCompare(right.text);
+  }
+  if (!leftDue) {
+    return 1;
+  }
+  if (!rightDue) {
+    return -1;
+  }
+  if (leftDue !== rightDue) {
+    return leftDue.localeCompare(rightDue);
+  }
+  const leftPriority = PRIORITY_ORDER[left.priority ?? ''] ?? 0;
+  const rightPriority = PRIORITY_ORDER[right.priority ?? ''] ?? 0;
+  if (leftPriority !== rightPriority) {
+    return rightPriority - leftPriority;
+  }
   const noteCompare = left.noteTitle.localeCompare(right.noteTitle);
   if (noteCompare !== 0) {
     return noteCompare;
@@ -46,14 +69,12 @@ const compareByTitle = (left: IndexedTask, right: IndexedTask) => {
   return left.text.localeCompare(right.text);
 };
 
-const compareByUpdated = (left: IndexedTask, right: IndexedTask) =>
-  right.updatedAt - left.updatedAt;
-
 export default function TasksViewPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
 
-  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
   const notes = React.useMemo(
     () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
     [nodes],
@@ -61,16 +82,22 @@ export default function TasksViewPage() {
   const pathCache = React.useMemo(() => buildPathCache(nodes), [nodes]);
 
   const [query, setQuery] = React.useState('');
-  const [onlyDue, setOnlyDue] = React.useState(false);
-  const [orderBy, setOrderBy] = React.useState<OrderBy>('due');
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
+  const [priorityFilter, setPriorityFilter] = React.useState<PriorityFilter>('all');
+  const [dueFilter, setDueFilter] = React.useState<DueFilter>('all');
+  const [includeSnoozed, setIncludeSnoozed] = React.useState(false);
+  const [showCompleted, setShowCompleted] = React.useState(false);
+  const [groupMode, setGroupMode] = React.useState<GroupMode>('path');
 
+  const todayISO = getTodayISO();
+  const nextWeekISO = addDaysISO(todayISO, 7);
   const tasks = React.useMemo(
     () =>
-      buildTaskIndex(notes as NoteNode[]).map((task) => ({
+      buildTaskIndex(notes as NoteNode[], todayISO).map((task) => ({
         ...task,
         notePath: getTaskNotePath(pathCache.get(task.noteId)),
       })),
-    [notes, pathCache],
+    [notes, pathCache, todayISO],
   );
 
   const openTasks = React.useMemo(
@@ -80,7 +107,10 @@ export default function TasksViewPage() {
 
   const filtered = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    let next = openTasks;
+    let next = showCompleted ? tasks : openTasks;
+    if (!includeSnoozed) {
+      next = next.filter((task) => !task.isSnoozed);
+    }
     if (normalizedQuery) {
       next = next.filter(
         (task) =>
@@ -88,20 +118,50 @@ export default function TasksViewPage() {
           task.noteTitle.toLowerCase().includes(normalizedQuery),
       );
     }
-    if (onlyDue) {
-      next = next.filter((task) => Boolean(task.due));
+    if (statusFilter !== 'all') {
+      next = next.filter((task) => (task.status ?? 'open') === statusFilter);
     }
-
+    if (priorityFilter !== 'all') {
+      next = next.filter((task) => task.priority === priorityFilter);
+    }
+    if (dueFilter !== 'all') {
+      next = next.filter((task) => {
+        const effectiveDue = task.effectiveDue ?? null;
+        if (dueFilter === 'none') {
+          return !effectiveDue;
+        }
+        if (dueFilter === 'has') {
+          return Boolean(effectiveDue);
+        }
+        if (dueFilter === 'overdue') {
+          return Boolean(effectiveDue && effectiveDue < todayISO);
+        }
+        if (dueFilter === 'today') {
+          return effectiveDue === todayISO;
+        }
+        if (dueFilter === 'next7') {
+          return Boolean(
+            effectiveDue && effectiveDue >= todayISO && effectiveDue <= nextWeekISO,
+          );
+        }
+        return true;
+      });
+    }
     const sorted = [...next];
-    if (orderBy === 'title') {
-      sorted.sort(compareByTitle);
-    } else if (orderBy === 'updated') {
-      sorted.sort(compareByUpdated);
-    } else {
-      sorted.sort(compareByDue);
-    }
+    sorted.sort(compareByEffectiveDue);
     return sorted;
-  }, [onlyDue, openTasks, orderBy, query]);
+  }, [
+    dueFilter,
+    includeSnoozed,
+    nextWeekISO,
+    openTasks,
+    priorityFilter,
+    query,
+    showCompleted,
+    statusFilter,
+    tasks,
+    todayISO,
+  ]);
 
   const handleToggle = async (task: IndexedTask, checked: boolean) => {
     try {
@@ -121,12 +181,65 @@ export default function TasksViewPage() {
     }
   };
 
+  const handleUpdateStatus = async (
+    task: IndexedTask,
+    status: 'open' | 'doing' | 'waiting',
+  ) => {
+    try {
+      await updateChecklistMeta(task.noteId, task.blockId, { status });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar status: ${message}`);
+    }
+  };
+
+  const handleUpdatePriority = async (
+    task: IndexedTask,
+    priority: 'P1' | 'P2' | 'P3' | null,
+  ) => {
+    try {
+      await updateChecklistMeta(task.noteId, task.blockId, { priority: priority ?? undefined });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar prioridade: ${message}`);
+    }
+  };
+
+  const handleUpdateRecurrence = async (
+    task: IndexedTask,
+    recurrence: 'weekly' | 'monthly' | null,
+  ) => {
+    try {
+      await updateChecklistMeta(task.noteId, task.blockId, { recurrence: recurrence ?? undefined });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar recorrencia: ${message}`);
+    }
+  };
+
+  const handleSnooze = async (task: IndexedTask, snoozedUntil: string | null) => {
+    try {
+      await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao definir snooze: ${message}`);
+    }
+  };
+
+  const handleClearSnooze = async (task: IndexedTask) => {
+    try {
+      await clearChecklistSnooze(task.noteId, task.blockId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao limpar snooze: ${message}`);
+    }
+  };
+
   const handleOpenNote = (noteId: string, blockId: string) => {
     navigate(`/item/${noteId}`, { state: { highlightBlockId: blockId } });
   };
 
-  const todayISO = getTodayISO();
-  const todayCount = openTasks.filter((task) => task.due === todayISO).length;
+  const todayCount = openTasks.filter((task) => task.effectiveDue === todayISO).length;
 
   return (
     <Stack spacing={3}>
@@ -135,45 +248,106 @@ export default function TasksViewPage() {
           Tarefas
         </Typography>
         <Typography color="text.secondary">
-          {filtered.length} abertas (hoje: {todayCount})
+          {showCompleted
+            ? `${filtered.length} tarefas (abertas: ${openTasks.length}, hoje: ${todayCount})`
+            : `${filtered.length} abertas (hoje: ${todayCount})`}
         </Typography>
       </Stack>
 
-      <Stack spacing={2} direction={{ xs: 'column', md: 'row' }}>
+      <Stack
+        spacing={2}
+        direction={{ xs: 'column', md: 'row' }}
+        sx={{ flexWrap: 'wrap', alignItems: { xs: 'stretch', md: 'center' } }}
+      >
         <TextField
           label="Buscar"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           fullWidth
         />
+        <TextField
+          select
+          label="Status"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+          sx={{ minWidth: 160 }}
+        >
+          <MenuItem value="all">Todos</MenuItem>
+          <MenuItem value="open">open</MenuItem>
+          <MenuItem value="doing">doing</MenuItem>
+          <MenuItem value="waiting">waiting</MenuItem>
+        </TextField>
+        <TextField
+          select
+          label="Prioridade"
+          value={priorityFilter}
+          onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
+          sx={{ minWidth: 160 }}
+        >
+          <MenuItem value="all">Todas</MenuItem>
+          <MenuItem value="P1">P1</MenuItem>
+          <MenuItem value="P2">P2</MenuItem>
+          <MenuItem value="P3">P3</MenuItem>
+        </TextField>
+        <TextField
+          select
+          label="Vencimento"
+          value={dueFilter}
+          onChange={(event) => setDueFilter(event.target.value as DueFilter)}
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="all">Todos</MenuItem>
+          <MenuItem value="none">Sem vencimento</MenuItem>
+          <MenuItem value="has">Com vencimento</MenuItem>
+          <MenuItem value="overdue">Atrasadas</MenuItem>
+          <MenuItem value="today">Hoje</MenuItem>
+          <MenuItem value="next7">Proximos 7 dias</MenuItem>
+        </TextField>
+        <TextField
+          select
+          label="Agrupar"
+          value={groupMode}
+          onChange={(event) => setGroupMode(event.target.value as GroupMode)}
+          sx={{ minWidth: 160 }}
+        >
+          <MenuItem value="path">Por pasta</MenuItem>
+          <MenuItem value="note">Por nota</MenuItem>
+          <MenuItem value="none">Sem grupo</MenuItem>
+        </TextField>
         <FormControlLabel
           control={
             <Checkbox
-              checked={onlyDue}
-              onChange={(event) => setOnlyDue(event.target.checked)}
+              checked={includeSnoozed}
+              onChange={(event) => setIncludeSnoozed(event.target.checked)}
             />
           }
-          label="Somente com vencimento"
+          label="Incluir snoozed"
         />
-        <TextField
-          select
-          label="Ordenar"
-          value={orderBy}
-          onChange={(event) => setOrderBy(event.target.value as OrderBy)}
-          sx={{ minWidth: 180 }}
-        >
-          <MenuItem value="due">Vencimento</MenuItem>
-          <MenuItem value="title">Titulo</MenuItem>
-          <MenuItem value="updated">Atualizacao</MenuItem>
-        </TextField>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={showCompleted}
+              onChange={(event) => setShowCompleted(event.target.checked)}
+            />
+          }
+          label="Mostrar concluidas"
+        />
       </Stack>
 
-      <TaskList
+      <TaskGroupedList
         tasks={filtered}
+        groupMode={groupMode}
+        storageKey="tasks"
         emptyMessage="Nenhuma tarefa aberta."
         onToggle={handleToggle}
         onOpenNote={handleOpenNote}
         onUpdateDue={handleUpdateDue}
+        onUpdateStatus={handleUpdateStatus}
+        onUpdatePriority={handleUpdatePriority}
+        onUpdateRecurrence={handleUpdateRecurrence}
+        onSnooze={handleSnooze}
+        onClearSnooze={handleClearSnooze}
+        showMetaControls
       />
     </Stack>
   );

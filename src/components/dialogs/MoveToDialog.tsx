@@ -15,6 +15,7 @@ import {
 import { FolderOutlined, HomeOutlined } from '@mui/icons-material';
 
 import type { Node as DataNode, NodeType } from '../../data/types';
+import { useIsMobile } from '../../app/useIsMobile';
 
 type MoveToDialogProps = {
   open: boolean;
@@ -59,6 +60,7 @@ export default function MoveToDialog({
   onClose,
   onConfirm,
 }: MoveToDialogProps) {
+  const isMobile = useIsMobile();
   const [selected, setSelected] = React.useState(ROOT_ID);
 
   const folders = React.useMemo(
@@ -107,7 +109,7 @@ export default function MoveToDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
       <DialogTitle>Mover para...</DialogTitle>
       <DialogContent>
         <Typography color="text.secondary" sx={{ mb: 1 }}>
@@ -147,9 +149,18 @@ export default function MoveToDialog({
           )}
         </List>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancelar</Button>
-        <Button onClick={handleConfirm} disabled={!canConfirm} variant="contained">
+      <DialogActions
+        sx={{ flexDirection: isMobile ? 'column' : 'row', alignItems: 'stretch' }}
+      >
+        <Button onClick={onClose} sx={{ width: isMobile ? '100%' : 'auto' }}>
+          Cancelar
+        </Button>
+        <Button
+          onClick={handleConfirm}
+          disabled={!canConfirm}
+          variant="contained"
+          sx={{ width: isMobile ? '100%' : 'auto' }}
+        >
           Mover
         </Button>
       </DialogActions>

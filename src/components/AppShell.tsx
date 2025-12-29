@@ -1,21 +1,29 @@
 import React from 'react';
-import { Box, Toolbar, useMediaQuery } from '@mui/material';
+import { Box, SpeedDial, SpeedDialAction, SpeedDialIcon, Toolbar } from '@mui/material';
+import { format } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
 import { useTheme } from '@mui/material/styles';
 import { Outlet, useMatch, useNavigate } from 'react-router-dom';
+import { Add, CreateNewFolder, EditNote } from '@mui/icons-material';
 
 import LeftNav from './LeftNav';
 import SearchDialog from './SearchDialog';
 import CommandPalette from './CommandPalette';
 import RightContextPanel from './RightContextPanel';
 import TopBar from './TopBar';
+import CaptureDialog from './dialogs/CaptureDialog';
 import { useDataStore } from '../store/useDataStore';
 import { executeCommand } from '../command/execute';
 import { useNotifier } from './Notifier';
-import { setLocalChangeHandler } from '../data/repo';
+import { appendNoteBlock, createNote, getByTitleExact, setLocalChangeHandler } from '../data/repo';
 import { useItem } from '../data/hooks';
-import type { NodeType } from '../data/types';
+import type { Block, NodeType } from '../data/types';
 import { getStoredSyncSettings } from '../sync/syncState';
 import { initAutoSync, markDirty, scheduleSyncSoon } from '../sync/syncService';
+import { getTodayISO } from '../tasks/date';
+import { useIsMobile } from '../app/useIsMobile';
+import { runAutoBackupIfDue } from '../data/autoBackup';
+import { GIT_SHA } from '../app/buildInfo';
 
 const DRAWER_WIDTH = 280;
 const COLLAPSED_WIDTH = 72;
@@ -23,7 +31,7 @@ const RIGHT_PANEL_WIDTH = 320;
 
 export default function AppShell() {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const notifier = useNotifier();
   const { init: initData, createQuick } = useDataStore((state) => ({
@@ -39,6 +47,8 @@ export default function AppShell() {
   const [rightOpen, setRightOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [captureOpen, setCaptureOpen] = React.useState(false);
+  const [fabOpen, setFabOpen] = React.useState(false);
 
   const leftWidth = isMobile ? 0 : leftCollapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
   const rightWidth = isMobile ? 0 : rightOpen ? RIGHT_PANEL_WIDTH : 0;
@@ -69,6 +79,12 @@ export default function AppShell() {
     setPaletteOpen((prev) => !prev);
   }, []);
 
+  const openCapture = React.useCallback(() => {
+    setSearchOpen(false);
+    setPaletteOpen(false);
+    setCaptureOpen(true);
+  }, []);
+
   React.useEffect(() => {
     void initData();
   }, [initData]);
@@ -81,6 +97,38 @@ export default function AppShell() {
     });
     return () => {
       setLocalChangeHandler(null);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const storedKey = 'mf_build_sha';
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const previous = window.localStorage.getItem(storedKey);
+    if (previous && previous !== GIT_SHA) {
+      notifier.info(`App atualizado para v-${GIT_SHA}`);
+    }
+    window.localStorage.setItem(storedKey, GIT_SHA);
+  }, [notifier]);
+
+  React.useEffect(() => {
+    let active = true;
+    const run = async () => {
+      if (!active) {
+        return;
+      }
+      try {
+        await runAutoBackupIfDue();
+      } catch {
+        // ignore auto-backup errors
+      }
+    };
+    void run();
+    const intervalId = setInterval(run, 10 * 60 * 1000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -129,6 +177,12 @@ export default function AppShell() {
         return;
       }
 
+      if (key === 'c' && event.shiftKey && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        openCapture();
+        return;
+      }
+
       if (key === 'n') {
         event.preventDefault();
         const type = event.shiftKey ? 'folder' : 'note';
@@ -146,7 +200,7 @@ export default function AppShell() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [createQuick, navigate, notifier, openSearch, togglePalette, toggleSearch]);
+  }, [createQuick, navigate, notifier, openCapture, openSearch, togglePalette, toggleSearch]);
 
   const handleSelectSearchResult = (id: string) => {
     setSearchOpen(false);
@@ -177,6 +231,41 @@ export default function AppShell() {
     [createQuick, navigate, notifier],
   );
 
+  const handleCapture = React.useCallback(
+    async (payload: { text: string; mode: 'quick' | 'daily' }) => {
+      const now = new Date();
+      const block: Block = {
+        id: uuidv4(),
+        type: 'paragraph',
+        text: payload.text,
+        createdAt: Date.now(),
+      };
+      try {
+        if (payload.mode === 'quick') {
+          const title = `Captura - ${format(now, 'yyyy-MM-dd HH:mm')}`;
+          const note = await createNote({ title, content: [block] });
+          navigate(`/item/${note.id}`, { state: { focusEditor: true } });
+        } else {
+          const title = `Capturas - ${getTodayISO()}`;
+          const existing = await getByTitleExact(title);
+          if (existing && existing.nodeType === 'note') {
+            await appendNoteBlock(existing.id, block);
+            navigate(`/item/${existing.id}`, { state: { focusEditor: false } });
+          } else {
+            const note = await createNote({ title, content: [block] });
+            navigate(`/item/${note.id}`, { state: { focusEditor: true } });
+          }
+        }
+        notifier.success('Captura salva');
+        setCaptureOpen(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao capturar: ${message}`);
+      }
+    },
+    [navigate, notifier],
+  );
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <TopBar
@@ -187,6 +276,7 @@ export default function AppShell() {
         onToggleRightPanel={handleRightToggle}
         onOpenSearch={openSearch}
         onOpenPalette={openPalette}
+        onOpenCapture={openCapture}
         onCreate={handleCreate}
         onOpenSettings={() => navigate('/settings')}
       />
@@ -231,6 +321,51 @@ export default function AppShell() {
         onClose={() => setPaletteOpen(false)}
         onExecute={handleExecuteCommand}
       />
+      <CaptureDialog
+        open={captureOpen}
+        onClose={() => setCaptureOpen(false)}
+        onCapture={handleCapture}
+      />
+      {isMobile && (
+        <SpeedDial
+          ariaLabel="Acoes rapidas"
+          icon={<SpeedDialIcon />}
+          onClose={() => setFabOpen(false)}
+          onOpen={() => setFabOpen(true)}
+          open={fabOpen}
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: theme.zIndex.drawer + 2,
+          }}
+        >
+          <SpeedDialAction
+            icon={<EditNote />}
+            tooltipTitle="Capturar"
+            onClick={() => {
+              setFabOpen(false);
+              openCapture();
+            }}
+          />
+          <SpeedDialAction
+            icon={<Add />}
+            tooltipTitle="Nova nota"
+            onClick={() => {
+              setFabOpen(false);
+              void handleCreate('note');
+            }}
+          />
+          <SpeedDialAction
+            icon={<CreateNewFolder />}
+            tooltipTitle="Nova pasta"
+            onClick={() => {
+              setFabOpen(false);
+              void handleCreate('folder');
+            }}
+          />
+        </SpeedDial>
+      )}
     </Box>
   );
 }

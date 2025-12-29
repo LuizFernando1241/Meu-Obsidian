@@ -24,6 +24,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useMatch, useNavigate } from 'react-router-dom';
 
 import { db } from '../data/db';
+import { filterActiveNodes } from '../data/deleted';
 import { createFolder, createNote, deleteNode, moveNode, renameNode } from '../data/repo';
 import type { NodeType } from '../data/types';
 import { buildTree, type TreeNode } from '../vault/tree';
@@ -65,7 +66,8 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
   const activeId = match?.params?.id;
   const listDense = !isMobile;
 
-  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
   const { roots } = React.useMemo(() => buildTree(nodes), [nodes]);
   const nodesById = React.useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
@@ -386,7 +388,7 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
       <ConfirmDialog
         open={Boolean(deleteNodeId && deleteNodeItem)}
         title="Excluir item?"
-        description="Esta acao nao pode ser desfeita."
+        description="O item sera movido para a lixeira."
         confirmLabel="Excluir"
         confirmColor="error"
         onConfirm={handleConfirmDelete}

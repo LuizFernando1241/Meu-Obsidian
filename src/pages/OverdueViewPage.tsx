@@ -3,47 +3,71 @@ import { Stack, Typography } from '@mui/material';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
 
-import TaskList from '../components/TaskList';
+import TaskGroupedList from '../components/tasks/TaskGroupedList';
 import { useNotifier } from '../components/Notifier';
 import { db } from '../data/db';
-import { setChecklistDue, toggleChecklist } from '../data/repo';
+import { filterActiveNodes } from '../data/deleted';
+import {
+  clearChecklistSnooze,
+  setChecklistDue,
+  setChecklistSnooze,
+  toggleChecklist,
+} from '../data/repo';
 import type { NoteNode } from '../data/types';
 import { getTodayISO } from '../tasks/date';
 import { buildTaskIndex, type IndexedTask } from '../tasks/taskIndex';
 import { getTaskNotePath } from '../tasks/taskPath';
 import { buildPathCache } from '../vault/pathCache';
 
+const PRIORITY_ORDER: Record<string, number> = {
+  P1: 3,
+  P2: 2,
+  P3: 1,
+};
+
 export default function OverdueViewPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
 
-  const nodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
+  const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
   const notes = React.useMemo(
     () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
     [nodes],
   );
   const pathCache = React.useMemo(() => buildPathCache(nodes), [nodes]);
 
+  const todayISO = getTodayISO();
   const tasks = React.useMemo(
     () =>
-      buildTaskIndex(notes as NoteNode[]).map((task) => ({
+      buildTaskIndex(notes as NoteNode[], todayISO).map((task) => ({
         ...task,
         notePath: getTaskNotePath(pathCache.get(task.noteId)),
       })),
-    [notes, pathCache],
+    [notes, pathCache, todayISO],
   );
 
-  const todayISO = getTodayISO();
   const filtered = React.useMemo(
     () =>
       tasks
-        .filter((task) => !task.checked && task.due && task.due < todayISO)
+        .filter(
+          (task) => !task.checked && task.effectiveDue && task.effectiveDue < todayISO,
+        )
         .sort((a, b) => {
-          const dueCompare = (a.due ?? '').localeCompare(b.due ?? '');
+          const dueCompare = (a.effectiveDue ?? '').localeCompare(b.effectiveDue ?? '');
           if (dueCompare !== 0) {
             return dueCompare;
           }
-          return a.noteTitle.localeCompare(b.noteTitle);
+          const leftPriority = PRIORITY_ORDER[a.priority ?? ''] ?? 0;
+          const rightPriority = PRIORITY_ORDER[b.priority ?? ''] ?? 0;
+          if (leftPriority !== rightPriority) {
+            return rightPriority - leftPriority;
+          }
+          const noteCompare = a.noteTitle.localeCompare(b.noteTitle);
+          if (noteCompare !== 0) {
+            return noteCompare;
+          }
+          return a.text.localeCompare(b.text);
         }),
     [tasks, todayISO],
   );
@@ -66,6 +90,24 @@ export default function OverdueViewPage() {
     }
   };
 
+  const handleSnooze = async (task: IndexedTask, snoozedUntil: string | null) => {
+    try {
+      await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao definir snooze: ${message}`);
+    }
+  };
+
+  const handleClearSnooze = async (task: IndexedTask) => {
+    try {
+      await clearChecklistSnooze(task.noteId, task.blockId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao limpar snooze: ${message}`);
+    }
+  };
+
   const handleOpenNote = (noteId: string, blockId: string) => {
     navigate(`/item/${noteId}`, { state: { highlightBlockId: blockId } });
   };
@@ -81,12 +123,16 @@ export default function OverdueViewPage() {
         </Typography>
       </Stack>
 
-      <TaskList
+      <TaskGroupedList
         tasks={filtered}
+        groupMode="path"
+        storageKey="overdue"
         emptyMessage="Nenhuma tarefa atrasada."
         onToggle={handleToggle}
         onOpenNote={handleOpenNote}
         onUpdateDue={handleUpdateDue}
+        onSnooze={handleSnooze}
+        onClearSnooze={handleClearSnooze}
       />
     </Stack>
   );

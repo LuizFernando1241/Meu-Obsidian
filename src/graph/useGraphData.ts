@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 
 import { db } from '../data/db';
 import type { Node } from '../data/types';
+import { filterActiveNodes } from '../data/deleted';
 import { buildGlobalGraph, buildLocalGraph } from './buildGraph';
 import type { GraphData } from './graphTypes';
 
@@ -21,10 +22,11 @@ const buildItemsKey = (items: Node[] | undefined) => {
 
 export const useGlobalGraphData = () => {
   const items = useLiveQuery(() => db.items.toArray(), []);
-  const itemsKey = React.useMemo(() => buildItemsKey(items), [items]);
+  const activeItems = React.useMemo(() => filterActiveNodes(items ?? []), [items]);
+  const itemsKey = React.useMemo(() => buildItemsKey(activeItems), [activeItems]);
 
   const data = React.useMemo<GraphData>(() => {
-    return buildGlobalGraph(items ?? []);
+    return buildGlobalGraph(activeItems);
   }, [itemsKey]);
 
   return { data, ready: Boolean(items) };
@@ -32,10 +34,11 @@ export const useGlobalGraphData = () => {
 
 export const useLocalGraphData = (centerId: string, depth = 1) => {
   const items = useLiveQuery(() => db.items.toArray(), []);
-  const itemsKey = React.useMemo(() => buildItemsKey(items), [items]);
+  const activeItems = React.useMemo(() => filterActiveNodes(items ?? []), [items]);
+  const itemsKey = React.useMemo(() => buildItemsKey(activeItems), [activeItems]);
 
   const data = React.useMemo<GraphData>(() => {
-    const list = items ?? [];
+    const list = activeItems;
     const itemsById = new Map(list.map((item) => [item.id, item]));
     return buildLocalGraph(itemsById, centerId, depth);
   }, [centerId, depth, itemsKey]);

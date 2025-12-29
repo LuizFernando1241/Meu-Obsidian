@@ -20,6 +20,7 @@ type BlockEditorProps = {
     meta?: { selectionStart?: number; selectionEnd?: number },
   ) => void;
   onKeyDown: (event: React.KeyboardEvent) => void;
+  onPaste?: (event: React.ClipboardEvent) => void;
   onFocus: () => void;
   onBlur?: () => void;
   inputRef?: React.Ref<HTMLElement>;
@@ -56,6 +57,7 @@ const BaseTextField = ({
   inputRef,
   placeholder,
   inputSx,
+  onPaste,
 }: {
   block: Block;
   onChange: (
@@ -63,6 +65,7 @@ const BaseTextField = ({
     meta?: { selectionStart?: number; selectionEnd?: number },
   ) => void;
   onKeyDown: (event: React.KeyboardEvent) => void;
+  onPaste?: (event: React.ClipboardEvent) => void;
   onFocus: () => void;
   onBlur?: () => void;
   inputRef?: React.Ref<HTMLElement>;
@@ -83,6 +86,7 @@ const BaseTextField = ({
       });
     }}
     onKeyDown={onKeyDown}
+    onPaste={onPaste}
     onFocus={onFocus}
     onBlur={onBlur}
     placeholder={placeholder}
@@ -98,6 +102,7 @@ export default function BlockEditor({
   block,
   onChange,
   onKeyDown,
+  onPaste,
   onFocus,
   onBlur,
   inputRef,
@@ -159,14 +164,15 @@ export default function BlockEditor({
         />
         <Box sx={{ flex: 1 }}>
           <BaseTextField
-            block={block}
-            onChange={(value, meta) => onChange({ text: value }, meta)}
-            onKeyDown={onKeyDown}
-            onFocus={onFocus}
-            onBlur={onBlur}
-            inputRef={inputRef}
-            placeholder="Checklist..."
-          />
+          block={block}
+          onChange={(value, meta) => onChange({ text: value }, meta)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          inputRef={inputRef}
+          placeholder="Checklist..."
+        />
         </Box>
         {showPromoteChecklist && onPromoteChecklist && (
           <Tooltip title="Promover para tarefa">
@@ -191,6 +197,7 @@ export default function BlockEditor({
           block={block}
           onChange={(value, meta) => onChange({ text: value }, meta)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           onFocus={onFocus}
           onBlur={onBlur}
           inputRef={inputRef}
@@ -205,6 +212,7 @@ export default function BlockEditor({
           block={block}
           onChange={(value, meta) => onChange({ text: value }, meta)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           onFocus={onFocus}
           onBlur={onBlur}
           inputRef={inputRef}
@@ -231,6 +239,7 @@ export default function BlockEditor({
           block={block}
           onChange={(value, meta) => onChange({ text: value }, meta)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           onFocus={onFocus}
           onBlur={onBlur}
           inputRef={inputRef}
@@ -245,6 +254,7 @@ export default function BlockEditor({
         block={block}
         onChange={(value, meta) => onChange({ text: value }, meta)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onFocus={onFocus}
         onBlur={onBlur}
         inputRef={inputRef}
@@ -258,6 +268,7 @@ export default function BlockEditor({
         block={block}
         onChange={(value, meta) => onChange({ text: value }, meta)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onFocus={onFocus}
         onBlur={onBlur}
         inputRef={inputRef}

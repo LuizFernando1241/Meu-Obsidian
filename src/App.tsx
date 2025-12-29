@@ -10,11 +10,14 @@ import ItemPage from './pages/ItemPage';
 import NotesPage from './pages/NotesPage';
 import NotFoundPage from './pages/NotFoundPage';
 import OverdueViewPage from './pages/OverdueViewPage';
+import ReviewPage from './pages/ReviewPage';
 import SettingsPage from './pages/SettingsPage';
 import TagPage from './pages/TagPage';
 import TagsIndexPage from './pages/TagsIndexPage';
 import TasksViewPage from './pages/TasksViewPage';
 import TodayViewPage from './pages/TodayViewPage';
+import TrashPage from './pages/TrashPage';
+import ViewPage from './pages/ViewPage';
 
 const routesByKey = [...NAV_ROUTES, ...EXTRA_ROUTES].reduce<Record<string, AppRoute>>(
   (acc, route) => {
@@ -30,15 +33,18 @@ export default function App() {
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route path={routesByKey.home.path} element={<Home />} />
+          <Route path={routesByKey.review.path} element={<ReviewPage />} />
           <Route path={routesByKey.tasks.path} element={<TasksViewPage />} />
           <Route path={routesByKey.today.path} element={<TodayViewPage />} />
           <Route path={routesByKey.overdue.path} element={<OverdueViewPage />} />
           <Route path={routesByKey.notes.path} element={<NotesPage />} />
+          <Route path={routesByKey.trash.path} element={<TrashPage />} />
           <Route path={routesByKey.tags.path} element={<TagsIndexPage />} />
           <Route path={routesByKey.graph.path} element={<GraphPage />} />
           <Route path={routesByKey.help.path} element={<HelpPage />} />
           <Route path={routesByKey.tag.path} element={<TagPage />} />
           <Route path={routesByKey.item.path} element={<ItemPage />} />
+          <Route path={routesByKey.view.path} element={<ViewPage />} />
           <Route path={routesByKey.settings.path} element={<SettingsPage />} />
           <Route path={routesByKey.debug.path} element={<DebugPage />} />
           <Route path={routesByKey['not-found'].path} element={<NotFoundPage />} />

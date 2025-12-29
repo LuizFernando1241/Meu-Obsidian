@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { replaceRange } from '../../app/wikilinks';
 import { createNote, searchByTitlePrefix } from '../../data/repo';
 import type { Block, BlockType, Node } from '../../data/types';
+import { parseMarkdownToBlocks } from '../../editor/markdownToBlocks';
 import BlockEditor from './BlockEditor';
 import { arrayMove, findIndexById } from './reorder';
 import SlashMenu from './SlashMenu';
@@ -581,6 +582,46 @@ export default function Editor({
     [onChecklistToggleTask, updateBlocks, updateSlashState, updateLinkState],
   );
 
+  const handleBlockPaste = React.useCallback(
+    (event: React.ClipboardEvent, blockId: string) => {
+      const text = event.clipboardData?.getData('text/plain') ?? '';
+      if (!text.trim()) {
+        return;
+      }
+      const parsed = parseMarkdownToBlocks(text);
+      if (parsed.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      if (slashState) {
+        setSlashState(null);
+      }
+      if (linkState) {
+        setLinkState(null);
+        setLinkResults([]);
+      }
+      let nextFocusId: string | null = null;
+      updateBlocks((prev) => {
+        const index = prev.findIndex((block) => block.id === blockId);
+        if (index === -1) {
+          return prev;
+        }
+        const current = prev[index];
+        const first = parsed[0];
+        const nextFirst: Block = { ...first, id: current.id };
+        const tail = parsed.slice(1);
+        nextFocusId = tail.length > 0 ? tail[tail.length - 1].id : nextFirst.id;
+        const next = [...prev];
+        next.splice(index, 1, nextFirst, ...tail);
+        return next;
+      }, 'structural');
+      if (nextFocusId) {
+        setFocusTarget({ id: nextFocusId, position: 'end' });
+      }
+    },
+    [linkState, slashState, updateBlocks],
+  );
+
   const handleBlockFocus = React.useCallback(
     (block: Block) => {
       lastFocusedIdRef.current = block.id;
@@ -638,6 +679,7 @@ export default function Editor({
           nextBlock.tags = undefined;
           nextBlock.createdAt = undefined;
           nextBlock.taskId = undefined;
+          nextBlock.meta = undefined;
         }
 
         if (nextType === 'code') {
@@ -728,6 +770,7 @@ export default function Editor({
                 }}
                 onChange={(patch, meta) => handleBlockChange(block.id, patch, meta)}
                 onKeyDown={(event) => handleBlockKeyDown(event, index, block)}
+                onPaste={(event) => handleBlockPaste(event, block.id)}
                 onFocus={() => handleBlockFocus(block)}
                 onBlur={onBlur}
                 inputRef={setBlockRef(block.id)}

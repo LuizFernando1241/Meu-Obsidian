@@ -8,6 +8,12 @@ export type ParsedWikilink = {
   display?: string;
 };
 
+export type WikilinkSnippet = {
+  snippet: string;
+  start: number;
+  end: number;
+};
+
 export const parseWikilinks = (text: string): ParsedWikilink[] => {
   if (!text) {
     return [];
@@ -82,4 +88,37 @@ export const replaceRange = (
     return text;
   }
   return `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+};
+
+const normalizeSnippet = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+export const findWikilinkSnippets = (
+  text: string,
+  target: { id?: string; title?: string },
+): WikilinkSnippet[] => {
+  if (!text) {
+    return [];
+  }
+  const titleNeedle = target.title?.trim().toLowerCase();
+  const idNeedle = target.id?.trim();
+  const results: WikilinkSnippet[] = [];
+  const links = parseWikilinks(text);
+  links.forEach((link) => {
+    const isMatch =
+      (idNeedle && link.kind === 'id' && link.id === idNeedle) ||
+      (titleNeedle &&
+        link.kind === 'title' &&
+        link.title?.trim().toLowerCase() === titleNeedle);
+    if (!isMatch) {
+      return;
+    }
+    const start = Math.max(0, link.start - 60);
+    const end = Math.min(text.length, link.end + 60);
+    const raw = text.slice(start, end);
+    const snippet = `${start > 0 ? '...' : ''}${normalizeSnippet(raw)}${
+      end < text.length ? '...' : ''
+    }`;
+    results.push({ snippet, start: link.start, end: link.end });
+  });
+  return results;
 };

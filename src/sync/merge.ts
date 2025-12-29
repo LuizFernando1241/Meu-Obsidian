@@ -1,4 +1,4 @@
-import type { Item, Tombstone } from '../data/types';
+import type { Item, PropertySchema, SavedView, Tombstone } from '../data/types';
 import type { Vault } from './vault';
 
 const compareNumber = (left: number, right: number) => {
@@ -74,6 +74,72 @@ const chooseItem = (
   return { item: remote, localWon: false };
 };
 
+const chooseView = (
+  local?: SavedView,
+  remote?: SavedView,
+): { view?: SavedView; localWon: boolean } => {
+  if (!local && !remote) {
+    return { view: undefined, localWon: false };
+  }
+  if (local && !remote) {
+    return { view: local, localWon: true };
+  }
+  if (!local && remote) {
+    return { view: remote, localWon: false };
+  }
+
+  const updatedCompare = compareNumber(local!.updatedAt ?? 0, remote!.updatedAt ?? 0);
+  if (updatedCompare > 0) {
+    return { view: local, localWon: true };
+  }
+  if (updatedCompare < 0) {
+    return { view: remote, localWon: false };
+  }
+
+  const createdCompare = compareNumber(local!.createdAt ?? 0, remote!.createdAt ?? 0);
+  if (createdCompare > 0) {
+    return { view: local, localWon: true };
+  }
+  if (createdCompare < 0) {
+    return { view: remote, localWon: false };
+  }
+
+  return { view: remote, localWon: false };
+};
+
+const chooseSchema = (
+  local?: PropertySchema,
+  remote?: PropertySchema,
+): { schema?: PropertySchema; localWon: boolean } => {
+  if (!local && !remote) {
+    return { schema: undefined, localWon: false };
+  }
+  if (local && !remote) {
+    return { schema: local, localWon: true };
+  }
+  if (!local && remote) {
+    return { schema: remote, localWon: false };
+  }
+
+  const updatedCompare = compareNumber(local!.updatedAt ?? 0, remote!.updatedAt ?? 0);
+  if (updatedCompare > 0) {
+    return { schema: local, localWon: true };
+  }
+  if (updatedCompare < 0) {
+    return { schema: remote, localWon: false };
+  }
+
+  const versionCompare = compareNumber(local!.version ?? 0, remote!.version ?? 0);
+  if (versionCompare > 0) {
+    return { schema: local, localWon: true };
+  }
+  if (versionCompare < 0) {
+    return { schema: remote, localWon: false };
+  }
+
+  return { schema: remote, localWon: false };
+};
+
 export const mergeVaults = (
   local: Vault,
   remote: Vault,
@@ -128,7 +194,51 @@ export const mergeVaults = (
     }
   });
 
-  const pushNeeded = localWonItem || localWonTombstone;
+  const localViewsById = new Map(local.views.map((view) => [view.id, view]));
+  const remoteViewsById = new Map(remote.views.map((view) => [view.id, view]));
+  const viewIds = new Set<string>([
+    ...localViewsById.keys(),
+    ...remoteViewsById.keys(),
+  ]);
+  const mergedViews: SavedView[] = [];
+  let localWonView = false;
+
+  viewIds.forEach((id) => {
+    const { view, localWon } = chooseView(
+      localViewsById.get(id),
+      remoteViewsById.get(id),
+    );
+    if (view) {
+      mergedViews.push(view);
+      if (localWon) {
+        localWonView = true;
+      }
+    }
+  });
+
+  const localSchemasById = new Map((local.schemas ?? []).map((schema) => [schema.id, schema]));
+  const remoteSchemasById = new Map((remote.schemas ?? []).map((schema) => [schema.id, schema]));
+  const schemaIds = new Set<string>([
+    ...localSchemasById.keys(),
+    ...remoteSchemasById.keys(),
+  ]);
+  const mergedSchemas: PropertySchema[] = [];
+  let localWonSchema = false;
+
+  schemaIds.forEach((id) => {
+    const { schema, localWon } = chooseSchema(
+      localSchemasById.get(id),
+      remoteSchemasById.get(id),
+    );
+    if (schema) {
+      mergedSchemas.push(schema);
+      if (localWon) {
+        localWonSchema = true;
+      }
+    }
+  });
+
+  const pushNeeded = localWonItem || localWonTombstone || localWonView || localWonSchema;
 
   return {
     merged: {
@@ -136,6 +246,8 @@ export const mergeVaults = (
       lastWriteAt: Date.now(),
       items: mergedItems,
       tombstones: mergedTombstones,
+      views: mergedViews,
+      schemas: mergedSchemas,
     },
     pushNeeded,
   };

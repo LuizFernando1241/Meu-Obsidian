@@ -6,7 +6,7 @@ import {
   getSyncState,
   getStoredSyncSettings,
   getLastSuccessfulSyncAt,
-  setLastSyncAt,
+  setLastAttemptAt,
   setLastSuccessfulSyncAt,
   setSyncPrefs,
   setSyncState,
@@ -40,34 +40,46 @@ const runSync = async (reason: string) => {
   }
 
   const execute = async () => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      updateStatus({ status: 'offline', lastError: undefined });
-      return;
-    }
-
     const settings = getSettings();
     if (!settings) {
-      updateStatus({ status: 'idle', lastError: undefined });
+      updateStatus({ status: 'idle', lastError: null, isSyncing: false });
       return;
     }
 
-    updateStatus({ status: 'syncing', lastError: undefined });
+    const now = Date.now();
+    updateStatus({
+      status: 'syncing',
+      isSyncing: true,
+      lastAttemptAt: now,
+      lastSyncAt: now,
+      lastError: null,
+    });
+    setLastAttemptAt(now);
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      updateStatus({ status: 'offline', lastError: null, isSyncing: false });
+      return;
+    }
+
     const result = await syncNow(settings);
     if (result.status === 'ok') {
-      const now = Date.now();
+      const completedAt = Date.now();
       updateStatus({
         status: 'synced',
         dirty: false,
-        lastSyncAt: now,
-        lastSuccessfulSyncAt: now,
-        lastError: undefined,
+        lastSyncAt: completedAt,
+        lastAttemptAt: completedAt,
+        lastSuccessfulSyncAt: completedAt,
+        lastError: null,
+        isSyncing: false,
       });
-      setLastSyncAt(now);
-      setLastSuccessfulSyncAt(now);
+      setLastAttemptAt(completedAt);
+      setLastSuccessfulSyncAt(completedAt);
     } else {
       updateStatus({
         status: 'error',
-        lastError: result.message,
+        lastError: { message: result.message },
+        isSyncing: false,
       });
     }
   };
@@ -117,7 +129,7 @@ export const initAutoSync = (provider?: () => SyncSettings | null) => {
     const lastSyncAt = getLastSyncAt();
     const lastSuccessfulSyncAt = getLastSuccessfulSyncAt();
     if (lastSyncAt || lastSuccessfulSyncAt) {
-      updateStatus({ lastSyncAt, lastSuccessfulSyncAt });
+      updateStatus({ lastSyncAt, lastAttemptAt: lastSyncAt, lastSuccessfulSyncAt });
     }
 
     if (typeof document !== 'undefined') {
@@ -138,7 +150,7 @@ export const initAutoSync = (provider?: () => SyncSettings | null) => {
       });
 
       window.addEventListener('offline', () => {
-        updateStatus({ status: 'offline', lastError: undefined });
+        updateStatus({ status: 'offline', lastError: null, isSyncing: false });
       });
     }
   }
@@ -149,7 +161,7 @@ export const initAutoSync = (provider?: () => SyncSettings | null) => {
     void runSync('startup');
   } else {
     clearTimers();
-    updateStatus({ status: 'idle' });
+    updateStatus({ status: 'idle', isSyncing: false });
   }
 };
 
@@ -189,7 +201,7 @@ export const setAutoSyncEnabled = (enabled: boolean) => {
     void runSync('toggle');
   } else {
     clearTimers();
-    updateStatus({ status: 'idle' });
+    updateStatus({ status: 'idle', isSyncing: false });
   }
 };
 

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 
+import { filterActiveNodes } from '../data/deleted';
 import { db } from '../data/db';
-import type { NodeType } from '../data/types';
+import type { NodeType, PropertySchema } from '../data/types';
 import { searchIndexService } from './indexService';
 import { buildPathCache } from '../vault/pathCache';
 
@@ -78,25 +79,39 @@ const getDisplayPath = (pathText?: string) => {
 
 export const useSearchIndex = () => {
   const items = useLiveQuery(() => db.items.toArray(), []);
-  const pathCache = React.useMemo(
-    () => (items ? buildPathCache(items) : new Map()),
+  const schema = useLiveQuery(() => db.schemas.get('global') as Promise<PropertySchema | undefined>, []);
+  const activeItems = React.useMemo(
+    () => (items ? filterActiveNodes(items) : undefined),
     [items],
   );
+  const pathCache = React.useMemo(
+    () => (activeItems ? buildPathCache(activeItems) : new Map()),
+    [activeItems],
+  );
+  const indexedKeys = React.useMemo(() => {
+    if (!schema || !Array.isArray(schema.properties)) {
+      return undefined;
+    }
+    return schema.properties
+      .filter((property) => property.indexed)
+      .map((property) => property.key);
+  }, [schema]);
 
   const debounceRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
-    if (!items) {
+    if (!activeItems) {
       return;
     }
+    searchIndexService.setIndexedKeys(indexedKeys);
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
     }
     debounceRef.current = window.setTimeout(() => {
       if (!searchIndexService.isReady()) {
-        searchIndexService.init(items);
+        searchIndexService.init(activeItems);
       } else {
-        searchIndexService.applyDelta(items);
+        searchIndexService.applyDelta(activeItems);
       }
       debounceRef.current = null;
     }, 200);
@@ -107,7 +122,7 @@ export const useSearchIndex = () => {
         debounceRef.current = null;
       }
     };
-  }, [items]);
+  }, [activeItems, indexedKeys]);
 
   const search = React.useCallback(
     (query: string, typeFilter: TypeFilter = 'all'): SearchHit[] => {
@@ -118,7 +133,7 @@ export const useSearchIndex = () => {
       const pathNeedle = parsed.path ? normalizeFilterText(parsed.path) : '';
       const scope = parsed.scope;
 
-      if (!items || (!textQuery && !pathNeedle && !effectiveType)) {
+      if (!activeItems || (!textQuery && !pathNeedle && !effectiveType)) {
         return [] as SearchHit[];
       }
 
@@ -131,7 +146,7 @@ export const useSearchIndex = () => {
           80,
         );
       } else {
-        baseResults = items
+        baseResults = activeItems
           .filter((item) => (effectiveType ? item.nodeType === effectiveType : true))
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .map((item) => ({ id: item.id }));
@@ -184,7 +199,7 @@ export const useSearchIndex = () => {
 
       return hits.slice(0, 50);
     },
-    [items, pathCache],
+    [activeItems, pathCache],
   );
 
   const getSnippet = React.useCallback((id: string, query: string) => {
@@ -219,7 +234,7 @@ export const useSearchIndex = () => {
   }, []);
 
   return {
-    ready: Boolean(items),
+    ready: Boolean(activeItems),
     search,
     getSnippet,
   };
