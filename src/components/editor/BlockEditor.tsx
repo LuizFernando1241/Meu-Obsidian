@@ -15,6 +15,7 @@ import type { Block, BlockType } from '../../data/types';
 
 type BlockEditorProps = {
   block: Block;
+  listNumber?: number;
   onChange: (
     patch: Partial<Block>,
     meta?: { selectionStart?: number; selectionEnd?: number },
@@ -100,6 +101,7 @@ const BaseTextField = ({
 
 export default function BlockEditor({
   block,
+  listNumber,
   onChange,
   onKeyDown,
   onPaste,
@@ -226,6 +228,7 @@ export default function BlockEditor({
       </Paper>
     );
   } else if (type === 'bullet' || type === 'numbered') {
+    const numbering = type === 'numbered' ? `${listNumber ?? 1}.` : '*';
     content = (
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
         <Typography
@@ -233,7 +236,7 @@ export default function BlockEditor({
           sx={{ pt: 1, color: 'text.secondary' }}
           aria-hidden
         >
-          {type === 'bullet' ? '*' : '1.'}
+          {numbering}
         </Typography>
         <BaseTextField
           block={block}

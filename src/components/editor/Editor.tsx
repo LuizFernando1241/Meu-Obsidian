@@ -79,7 +79,7 @@ const getShortcutMatch = (text: string): ShortcutMatch | null => {
     return { type: 'divider', text: '' };
   }
 
-  const codeMatch = text.match(/^```(?:\s+)?(.*)$/);
+  const codeMatch = text.match(/^!\s*(.*)$/);
   if (codeMatch) {
     return { type: 'code', text: codeMatch[1] ?? '' };
   }
@@ -154,6 +154,19 @@ const createEmptyBlock = (): Block => ({
   type: 'paragraph',
   text: '',
 });
+
+const createBlockWithType = (type: BlockType): Block => {
+  const base = createEmptyBlock();
+  if (!isBlockType(type)) {
+    return base;
+  }
+  const next: Block = { ...base, type };
+  if (type === 'checklist') {
+    next.checked = false;
+    next.createdAt = Date.now();
+  }
+  return next;
+};
 
 const parseSlashCommand = (text: string) => {
   if (!text.startsWith('/')) {
@@ -440,8 +453,8 @@ export default function Editor({
   );
 
   const insertBlockAfter = React.useCallback(
-    (index: number) => {
-      const newBlock = createEmptyBlock();
+    (index: number, type: BlockType = 'paragraph') => {
+      const newBlock = createBlockWithType(type);
       updateBlocks((prev) => {
         const next = [...prev];
         next.splice(index + 1, 0, newBlock);
@@ -584,6 +597,16 @@ export default function Editor({
       }
 
       if (event.key === 'Enter' && !event.shiftKey) {
+        const currentType = isBlockType(block.type) ? block.type : 'paragraph';
+        if (
+          currentType === 'bullet' ||
+          currentType === 'numbered' ||
+          currentType === 'checklist'
+        ) {
+          event.preventDefault();
+          insertBlockAfter(index, currentType);
+          return;
+        }
         event.preventDefault();
         insertBlockAfter(index);
         return;
@@ -903,10 +926,19 @@ export default function Editor({
   return (
     <>
       <Stack spacing={2}>
-        {blocks.map((block, index) => {
+        {(() => {
+          let numberedCounter = 0;
+          return blocks.map((block, index) => {
           const showDropIndicator =
             Boolean(draggingId && overId === block.id && dropPosition);
           const indicatorPosition = dropPosition === 'above' ? 'top' : 'bottom';
+          const blockType = isBlockType(block.type) ? block.type : 'paragraph';
+          if (blockType === 'numbered') {
+            numberedCounter += 1;
+          } else {
+            numberedCounter = 0;
+          }
+          const listNumber = blockType === 'numbered' ? numberedCounter : undefined;
 
           return (
             <Box
@@ -934,6 +966,7 @@ export default function Editor({
                   type: isBlockType(block.type) ? block.type : 'paragraph',
                   text: block.text ?? '',
                 }}
+                listNumber={listNumber}
                 onChange={(patch, meta) => handleBlockChange(block.id, patch, meta)}
                 onKeyDown={(event) => handleBlockKeyDown(event, index, block)}
                 onPaste={(event) => handleBlockPaste(event, block.id)}
@@ -951,7 +984,8 @@ export default function Editor({
               />
             </Box>
           );
-        })}
+          });
+        })()}
       </Stack>
       <SlashMenu
         open={Boolean(slashState && activeAnchor)}
