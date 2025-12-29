@@ -28,7 +28,7 @@ import { NavLink } from 'react-router-dom';
 import { GIT_SHA } from '../app/buildInfo';
 import { NAV_ROUTES } from '../app/routes';
 import { db } from '../data/db';
-import { deleteView, reorderViews, upsertView } from '../data/repo';
+import { deleteView, upsertView } from '../data/repo';
 import type { SavedView } from '../data/types';
 import { sortViews } from '../data/sortViews';
 import VaultExplorer from './VaultExplorer';
@@ -46,8 +46,45 @@ type LeftNavProps = {
   collapsedWidth: number;
 };
 
-const navItems = NAV_ROUTES.filter((route) => route.showInNav !== false);
+const NAV_ORDER_KEY = 'nav_routes_order';
+const BASE_NAV_ITEMS = NAV_ROUTES.filter((route) => route.showInNav !== false);
 const versionLabel = `v-${GIT_SHA}`;
+
+const readNavOrder = () => {
+  if (typeof window === 'undefined') {
+    return [] as string[];
+  }
+  try {
+    const raw = localStorage.getItem(NAV_ORDER_KEY);
+    if (!raw) {
+      return [] as string[];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [] as string[];
+    }
+    return parsed.filter((entry): entry is string => typeof entry === 'string');
+  } catch {
+    return [] as string[];
+  }
+};
+
+const applyNavOrder = (items: typeof BASE_NAV_ITEMS, order: string[]) => {
+  const byKey = new Map(items.map((item) => [item.key, item]));
+  const ordered: typeof BASE_NAV_ITEMS = [];
+  order.forEach((key) => {
+    const item = byKey.get(key);
+    if (item) {
+      ordered.push(item);
+      byKey.delete(key);
+    }
+  });
+  byKey.forEach((item) => ordered.push(item));
+  return ordered;
+};
+
+const areArraysEqual = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
 
 export default function LeftNav({
   isMobile,
@@ -71,9 +108,33 @@ export default function LeftNav({
   const [viewMenuAnchor, setViewMenuAnchor] = React.useState<null | HTMLElement>(null);
   const [viewMenuId, setViewMenuId] = React.useState<string | null>(null);
   const [deleteViewId, setDeleteViewId] = React.useState<string | null>(null);
-  const [draggingViewId, setDraggingViewId] = React.useState<string | null>(null);
-  const [dropViewId, setDropViewId] = React.useState<string | null>(null);
-  const [dropPosition, setDropPosition] = React.useState<'above' | 'below' | null>(null);
+  const [navOrder, setNavOrder] = React.useState<string[]>(readNavOrder);
+  const [draggingNavKey, setDraggingNavKey] = React.useState<string | null>(null);
+  const [dropNavKey, setDropNavKey] = React.useState<string | null>(null);
+  const [dropNavPosition, setDropNavPosition] = React.useState<'above' | 'below' | null>(
+    null,
+  );
+
+  const navItems = React.useMemo(
+    () => applyNavOrder(BASE_NAV_ITEMS, navOrder),
+    [navOrder],
+  );
+
+  React.useEffect(() => {
+    const normalizedOrder = applyNavOrder(BASE_NAV_ITEMS, navOrder).map(
+      (item) => item.key,
+    );
+    if (!areArraysEqual(normalizedOrder, navOrder)) {
+      setNavOrder(normalizedOrder);
+    }
+  }, [navOrder]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navOrder));
+  }, [navOrder]);
 
   const handleNavigate = () => {
     if (isMobile) {
@@ -145,95 +206,87 @@ export default function LeftNav({
   };
 
   const clearDragState = React.useCallback(() => {
-    setDraggingViewId(null);
-    setDropViewId(null);
-    setDropPosition(null);
+    setDraggingNavKey(null);
+    setDropNavKey(null);
+    setDropNavPosition(null);
   }, []);
 
-  const getDragViewId = React.useCallback(
+  const getDragNavKey = React.useCallback(
     (event: React.DragEvent) =>
-      draggingViewId ||
-      event.dataTransfer.getData('application/x-view-id') ||
+      draggingNavKey ||
+      event.dataTransfer.getData('application/x-nav-key') ||
       event.dataTransfer.getData('text/plain') ||
       '',
-    [draggingViewId],
+    [draggingNavKey],
   );
 
-  const handleViewDragStart = React.useCallback((event: React.DragEvent, id: string) => {
+  const handleNavDragStart = React.useCallback((event: React.DragEvent, key: string) => {
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', id);
-    event.dataTransfer.setData('application/x-view-id', id);
-    setDraggingViewId(id);
-    setDropViewId(id);
-    setDropPosition(null);
+    event.dataTransfer.setData('text/plain', key);
+    event.dataTransfer.setData('application/x-nav-key', key);
+    setDraggingNavKey(key);
+    setDropNavKey(key);
+    setDropNavPosition(null);
   }, []);
 
-  const handleViewDragOver = React.useCallback(
-    (event: React.DragEvent, id: string) => {
-      const activeId = getDragViewId(event);
-      if (!activeId || activeId === id) {
+  const handleNavDragOver = React.useCallback(
+    (event: React.DragEvent, key: string) => {
+      const activeKey = getDragNavKey(event);
+      if (!activeKey || activeKey === key) {
         return;
       }
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
       const nextPosition = event.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
-      setDropViewId(id);
-      setDropPosition(nextPosition);
+      setDropNavKey(key);
+      setDropNavPosition(nextPosition);
     },
-    [getDragViewId],
+    [getDragNavKey],
   );
 
-  const handleViewDrop = React.useCallback(
-    async (event: React.DragEvent, id: string) => {
-      const activeId = getDragViewId(event);
+  const handleNavDrop = React.useCallback(
+    (event: React.DragEvent, key: string) => {
+      const activeKey = getDragNavKey(event);
       event.preventDefault();
       event.stopPropagation();
       clearDragState();
-      if (!activeId || activeId === id) {
+      if (!activeKey || activeKey === key) {
         return;
       }
-      const dragged = viewsById.get(activeId);
+      const dragged = navItems.find((item) => item.key === activeKey);
       if (!dragged) {
         return;
       }
-      const next = views.filter((view) => view.id !== activeId);
-      const targetIndex = next.findIndex((view) => view.id === id);
+      const next = navItems.filter((item) => item.key !== activeKey);
+      const targetIndex = next.findIndex((item) => item.key === key);
       const insertIndex =
-        targetIndex >= 0 ? targetIndex + (dropPosition === 'below' ? 1 : 0) : next.length;
+        targetIndex >= 0
+          ? targetIndex + (dropNavPosition === 'below' ? 1 : 0)
+          : next.length;
       next.splice(insertIndex, 0, dragged);
-      try {
-        await reorderViews(next.map((view) => view.id));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        notifier.error(`Erro ao mover visao: ${message}`);
-      }
+      setNavOrder(next.map((item) => item.key));
     },
-    [clearDragState, dropPosition, getDragViewId, notifier, views, viewsById],
+    [clearDragState, dropNavPosition, getDragNavKey, navItems],
   );
 
-  const handleViewListDrop = React.useCallback(
-    async (event: React.DragEvent) => {
-      const activeId = getDragViewId(event);
+  const handleNavListDrop = React.useCallback(
+    (event: React.DragEvent) => {
+      const activeKey = getDragNavKey(event);
       event.preventDefault();
       clearDragState();
-      if (!activeId) {
+      if (!activeKey) {
         return;
       }
-      const dragged = viewsById.get(activeId);
+      const dragged = navItems.find((item) => item.key === activeKey);
       if (!dragged) {
         return;
       }
-      const next = views.filter((view) => view.id !== activeId);
+      const next = navItems.filter((item) => item.key !== activeKey);
       next.push(dragged);
-      try {
-        await reorderViews(next.map((view) => view.id));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        notifier.error(`Erro ao mover visao: ${message}`);
-      }
+      setNavOrder(next.map((item) => item.key));
     },
-    [clearDragState, getDragViewId, notifier, views, viewsById],
+    [clearDragState, getDragNavKey, navItems],
   );
 
   const drawerContent = (
@@ -244,7 +297,15 @@ export default function LeftNav({
           <VaultExplorer isMobile={isMobile} onNavigate={handleNavigate} />
         )}
         <Divider />
-        <List>
+        <List
+          onDragOver={(event) => {
+            if (!draggingNavKey) {
+              return;
+            }
+            event.preventDefault();
+          }}
+          onDrop={handleNavListDrop}
+        >
           {!collapsed && (
             <Typography
               variant="overline"
@@ -255,6 +316,10 @@ export default function LeftNav({
           )}
           {navItems.map((item) => {
             const Icon = item.icon;
+            const isDropTarget = dropNavKey === item.key;
+            const showIndicator =
+              isDropTarget && (dropNavPosition === 'above' || dropNavPosition === 'below');
+            const indicatorPosition = dropNavPosition === 'below' ? 'bottom' : 'top';
             const button = (
               <ListItemButton
                 key={item.key}
@@ -262,6 +327,11 @@ export default function LeftNav({
                 to={item.path}
                 end={item.path === '/'}
                 onClick={handleNavigate}
+                draggable
+                onDragStart={(event) => handleNavDragStart(event, item.key)}
+                onDragEnd={clearDragState}
+                onDragOver={(event) => handleNavDragOver(event, item.key)}
+                onDrop={(event) => handleNavDrop(event, item.key)}
                 sx={{
                   minHeight: 48,
                   px: collapsed ? 1.5 : 2.5,
@@ -290,11 +360,41 @@ export default function LeftNav({
             );
 
             return collapsed ? (
-              <Tooltip key={item.key} title={item.label} placement="right">
-                {button}
-              </Tooltip>
+              <ListItem key={item.key} disablePadding sx={{ position: 'relative' }}>
+                {showIndicator && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: collapsed ? 8 : 16,
+                      right: 12,
+                      height: 2,
+                      bgcolor: 'primary.main',
+                      borderRadius: 1,
+                      [indicatorPosition]: 0,
+                    }}
+                  />
+                )}
+                <Tooltip title={item.label} placement="right">
+                  {button}
+                </Tooltip>
+              </ListItem>
             ) : (
-              button
+              <ListItem key={item.key} disablePadding sx={{ position: 'relative' }}>
+                {showIndicator && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: 16,
+                      right: 12,
+                      height: 2,
+                      bgcolor: 'primary.main',
+                      borderRadius: 1,
+                      [indicatorPosition]: 0,
+                    }}
+                  />
+                )}
+                {button}
+              </ListItem>
             );
           })}
         </List>
@@ -327,79 +427,44 @@ export default function LeftNav({
                   <ListItemText primary="Nenhuma visao ainda." />
                 </ListItem>
               ) : (
-                <Box
-                  onDragOver={(event) => {
-                    if (!draggingViewId) {
-                      return;
-                    }
-                    event.preventDefault();
-                  }}
-                  onDrop={handleViewListDrop}
-                >
-                  {views.map((view) => {
-                    const isDropTarget = dropViewId === view.id;
-                    const showIndicator =
-                      isDropTarget && (dropPosition === 'above' || dropPosition === 'below');
-                    const indicatorPosition = dropPosition === 'below' ? 'bottom' : 'top';
-                    return (
-                      <ListItem
-                        key={view.id}
-                        disablePadding
-                        sx={{ position: 'relative' }}
-                        secondaryAction={
-                          <IconButton
-                            edge="end"
-                            aria-label="Acoes"
-                            size="small"
-                            onClick={(event) => handleOpenViewMenu(event, view.id)}
-                          >
-                            <MoreVert fontSize="small" />
-                          </IconButton>
-                        }
+                views.map((view) => (
+                  <ListItem
+                    key={view.id}
+                    disablePadding
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        aria-label="Acoes"
+                        size="small"
+                        onClick={(event) => handleOpenViewMenu(event, view.id)}
                       >
-                        {showIndicator && (
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              left: 24,
-                              right: 16,
-                              height: 2,
-                              bgcolor: 'primary.main',
-                              borderRadius: 1,
-                              [indicatorPosition]: 0,
-                            }}
-                          />
-                        )}
-                        <ListItemButton
-                          component={NavLink}
-                          to={`/view/${view.id}`}
-                          onClick={handleNavigate}
-                          draggable
-                          onDragStart={(event) => handleViewDragStart(event, view.id)}
-                          onDragEnd={clearDragState}
-                          onDragOver={(event) => handleViewDragOver(event, view.id)}
-                          onDrop={(event) => handleViewDrop(event, view.id)}
-                          sx={{
-                            minHeight: 44,
-                            px: 2.5,
-                            '&.active, &[aria-current="page"]': {
-                              bgcolor: 'action.selected',
-                              '& .MuiListItemIcon-root': { color: 'text.primary' },
-                            },
-                          }}
-                        >
-                          <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
-                            <ViewList fontSize="small" />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={view.name}
-                            primaryTypographyProps={{ noWrap: true }}
-                          />
-                        </ListItemButton>
-                      </ListItem>
-                    );
-                  })}
-                </Box>
+                        <MoreVert fontSize="small" />
+                      </IconButton>
+                    }
+                  >
+                    <ListItemButton
+                      component={NavLink}
+                      to={`/view/${view.id}`}
+                      onClick={handleNavigate}
+                      sx={{
+                        minHeight: 44,
+                        px: 2.5,
+                        '&.active, &[aria-current="page"]': {
+                          bgcolor: 'action.selected',
+                          '& .MuiListItemIcon-root': { color: 'text.primary' },
+                        },
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
+                        <ViewList fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={view.name}
+                        primaryTypographyProps={{ noWrap: true }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                ))
               )}
             </List>
           </>
