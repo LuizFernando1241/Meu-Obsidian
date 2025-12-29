@@ -110,6 +110,7 @@ export type SavedView = {
   name: string;
   query: SavedViewQuery;
   sort?: SavedViewSort;
+  order?: number;
   displayMode?: 'list' | 'table' | 'kanban' | 'calendar';
   table?: {
     columns?: Array<'title' | 'type' | 'path' | 'status' | 'priority' | 'due' | 'updatedAt'>;

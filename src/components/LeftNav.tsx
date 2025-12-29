@@ -28,8 +28,9 @@ import { NavLink } from 'react-router-dom';
 import { GIT_SHA } from '../app/buildInfo';
 import { NAV_ROUTES } from '../app/routes';
 import { db } from '../data/db';
-import { deleteView, upsertView } from '../data/repo';
+import { deleteView, reorderViews, upsertView } from '../data/repo';
 import type { SavedView } from '../data/types';
+import { sortViews } from '../data/sortViews';
 import VaultExplorer from './VaultExplorer';
 import ConfirmDialog from './ConfirmDialog';
 import { useNotifier } from './Notifier';
@@ -59,7 +60,8 @@ export default function LeftNav({
 }: LeftNavProps) {
   const notifier = useNotifier();
   const width = collapsed ? collapsedWidth : drawerWidth;
-  const views = useLiveQuery(() => db.views.orderBy('updatedAt').reverse().toArray(), []) ?? [];
+  const rawViews = useLiveQuery(() => db.views.toArray(), []) ?? [];
+  const views = React.useMemo(() => sortViews([...rawViews]), [rawViews]);
   const viewsById = React.useMemo(
     () => new Map(views.map((view) => [view.id, view])),
     [views],
@@ -69,6 +71,9 @@ export default function LeftNav({
   const [viewMenuAnchor, setViewMenuAnchor] = React.useState<null | HTMLElement>(null);
   const [viewMenuId, setViewMenuId] = React.useState<string | null>(null);
   const [deleteViewId, setDeleteViewId] = React.useState<string | null>(null);
+  const [draggingViewId, setDraggingViewId] = React.useState<string | null>(null);
+  const [dropViewId, setDropViewId] = React.useState<string | null>(null);
+  const [dropPosition, setDropPosition] = React.useState<'above' | 'below' | null>(null);
 
   const handleNavigate = () => {
     if (isMobile) {
@@ -138,6 +143,98 @@ export default function LeftNav({
       setDeleteViewId(null);
     }
   };
+
+  const clearDragState = React.useCallback(() => {
+    setDraggingViewId(null);
+    setDropViewId(null);
+    setDropPosition(null);
+  }, []);
+
+  const getDragViewId = React.useCallback(
+    (event: React.DragEvent) =>
+      draggingViewId ||
+      event.dataTransfer.getData('application/x-view-id') ||
+      event.dataTransfer.getData('text/plain') ||
+      '',
+    [draggingViewId],
+  );
+
+  const handleViewDragStart = React.useCallback((event: React.DragEvent, id: string) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', id);
+    event.dataTransfer.setData('application/x-view-id', id);
+    setDraggingViewId(id);
+    setDropViewId(id);
+    setDropPosition(null);
+  }, []);
+
+  const handleViewDragOver = React.useCallback(
+    (event: React.DragEvent, id: string) => {
+      const activeId = getDragViewId(event);
+      if (!activeId || activeId === id) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      const nextPosition = event.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+      setDropViewId(id);
+      setDropPosition(nextPosition);
+    },
+    [getDragViewId],
+  );
+
+  const handleViewDrop = React.useCallback(
+    async (event: React.DragEvent, id: string) => {
+      const activeId = getDragViewId(event);
+      event.preventDefault();
+      event.stopPropagation();
+      clearDragState();
+      if (!activeId || activeId === id) {
+        return;
+      }
+      const dragged = viewsById.get(activeId);
+      if (!dragged) {
+        return;
+      }
+      const next = views.filter((view) => view.id !== activeId);
+      const targetIndex = next.findIndex((view) => view.id === id);
+      const insertIndex =
+        targetIndex >= 0 ? targetIndex + (dropPosition === 'below' ? 1 : 0) : next.length;
+      next.splice(insertIndex, 0, dragged);
+      try {
+        await reorderViews(next.map((view) => view.id));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao mover visao: ${message}`);
+      }
+    },
+    [clearDragState, dropPosition, getDragViewId, notifier, views, viewsById],
+  );
+
+  const handleViewListDrop = React.useCallback(
+    async (event: React.DragEvent) => {
+      const activeId = getDragViewId(event);
+      event.preventDefault();
+      clearDragState();
+      if (!activeId) {
+        return;
+      }
+      const dragged = viewsById.get(activeId);
+      if (!dragged) {
+        return;
+      }
+      const next = views.filter((view) => view.id !== activeId);
+      next.push(dragged);
+      try {
+        await reorderViews(next.map((view) => view.id));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao mover visao: ${message}`);
+      }
+    },
+    [clearDragState, getDragViewId, notifier, views, viewsById],
+  );
 
   const drawerContent = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -230,44 +327,79 @@ export default function LeftNav({
                   <ListItemText primary="Nenhuma visao ainda." />
                 </ListItem>
               ) : (
-                views.map((view) => (
-                  <ListItem
-                    key={view.id}
-                    disablePadding
-                    secondaryAction={
-                      <IconButton
-                        edge="end"
-                        aria-label="Acoes"
-                        size="small"
-                        onClick={(event) => handleOpenViewMenu(event, view.id)}
-                      >
-                        <MoreVert fontSize="small" />
-                      </IconButton>
+                <Box
+                  onDragOver={(event) => {
+                    if (!draggingViewId) {
+                      return;
                     }
-                  >
-                    <ListItemButton
-                      component={NavLink}
-                      to={`/view/${view.id}`}
-                      onClick={handleNavigate}
-                      sx={{
-                        minHeight: 44,
-                        px: 2.5,
-                        '&.active, &[aria-current="page"]': {
-                          bgcolor: 'action.selected',
-                          '& .MuiListItemIcon-root': { color: 'text.primary' },
-                        },
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
-                        <ViewList fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={view.name}
-                        primaryTypographyProps={{ noWrap: true }}
-                      />
-                    </ListItemButton>
-                  </ListItem>
-                ))
+                    event.preventDefault();
+                  }}
+                  onDrop={handleViewListDrop}
+                >
+                  {views.map((view) => {
+                    const isDropTarget = dropViewId === view.id;
+                    const showIndicator =
+                      isDropTarget && (dropPosition === 'above' || dropPosition === 'below');
+                    const indicatorPosition = dropPosition === 'below' ? 'bottom' : 'top';
+                    return (
+                      <ListItem
+                        key={view.id}
+                        disablePadding
+                        sx={{ position: 'relative' }}
+                        secondaryAction={
+                          <IconButton
+                            edge="end"
+                            aria-label="Acoes"
+                            size="small"
+                            onClick={(event) => handleOpenViewMenu(event, view.id)}
+                          >
+                            <MoreVert fontSize="small" />
+                          </IconButton>
+                        }
+                      >
+                        {showIndicator && (
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              left: 24,
+                              right: 16,
+                              height: 2,
+                              bgcolor: 'primary.main',
+                              borderRadius: 1,
+                              [indicatorPosition]: 0,
+                            }}
+                          />
+                        )}
+                        <ListItemButton
+                          component={NavLink}
+                          to={`/view/${view.id}`}
+                          onClick={handleNavigate}
+                          draggable
+                          onDragStart={(event) => handleViewDragStart(event, view.id)}
+                          onDragEnd={clearDragState}
+                          onDragOver={(event) => handleViewDragOver(event, view.id)}
+                          onDrop={(event) => handleViewDrop(event, view.id)}
+                          sx={{
+                            minHeight: 44,
+                            px: 2.5,
+                            '&.active, &[aria-current="page"]': {
+                              bgcolor: 'action.selected',
+                              '& .MuiListItemIcon-root': { color: 'text.primary' },
+                            },
+                          }}
+                        >
+                          <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
+                            <ViewList fontSize="small" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={view.name}
+                            primaryTypographyProps={{ noWrap: true }}
+                          />
+                        </ListItemButton>
+                      </ListItem>
+                    );
+                  })}
+                </Box>
               )}
             </List>
           </>

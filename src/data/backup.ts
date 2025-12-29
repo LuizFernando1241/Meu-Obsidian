@@ -253,6 +253,10 @@ const normalizeView = (value: unknown, index: number): SavedView | null => {
   const table = normalizeViewTable(value.table);
   const kanban = normalizeViewKanban(value.kanban);
   const calendar = normalizeViewCalendar(value.calendar);
+  const order =
+    typeof value.order === 'number' && Number.isFinite(value.order)
+      ? value.order
+      : undefined;
   const createdAt =
     typeof value.createdAt === 'number' && Number.isFinite(value.createdAt)
       ? value.createdAt
@@ -271,6 +275,7 @@ const normalizeView = (value: unknown, index: number): SavedView | null => {
     table,
     kanban,
     calendar,
+    order,
     createdAt,
     updatedAt,
   };

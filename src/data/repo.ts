@@ -10,6 +10,7 @@ import { buildDefaultSchema } from './schemaDefaults';
 import { enqueueItemWrite } from './writeQueue';
 import { cloneBlocksWithNewIds } from '../editor/markdownToBlocks';
 import { sortNodes } from '../vault/sortNodes';
+import { sortViews } from './sortViews';
 import type {
   Block,
   FolderNode,
@@ -149,6 +150,15 @@ const getNextOrderValue = async (parentId?: string): Promise<number> => {
   const items = filterActiveNodes(rawItems as Node[]);
   const maxOrder = items.reduce((max, item) => {
     const order = normalizeOrder(item.order);
+    return order !== undefined && order > max ? order : max;
+  }, -1);
+  return maxOrder + 1;
+};
+
+const getNextViewOrderValue = async (): Promise<number> => {
+  const views = await db.views.toArray();
+  const maxOrder = views.reduce((max, view) => {
+    const order = normalizeOrder(view.order);
     return order !== undefined && order > max ? order : max;
   }, -1);
   return maxOrder + 1;
@@ -984,7 +994,7 @@ export const wipeAll = async () => {
 };
 
 export const listViews = async (): Promise<SavedView[]> =>
-  db.views.orderBy('updatedAt').reverse().toArray();
+  sortViews(await db.views.toArray());
 
 export const getView = async (id: string): Promise<SavedView | undefined> =>
   db.views.get(id) as Promise<SavedView | undefined>;
@@ -1000,15 +1010,50 @@ export const upsertView = async (view: SavedView): Promise<SavedView> => {
     typeof view.updatedAt === 'number' && Number.isFinite(view.updatedAt)
       ? view.updatedAt
       : now;
+  const order =
+    normalizeOrder(view.order) ??
+    normalizeOrder(existing?.order) ??
+    (await getNextViewOrderValue());
   const next: SavedView = {
     ...view,
     createdAt,
     updatedAt,
+    order,
   };
 
   await db.views.put(next);
   notifyLocalChange();
   return next;
+};
+
+export const reorderViews = async (orderedIds: string[]): Promise<void> => {
+  if (orderedIds.length === 0) {
+    return;
+  }
+  const now = Date.now();
+  await db.transaction('rw', db.views, async () => {
+    const currentViews = await db.views.bulkGet(orderedIds);
+    const updates: SavedView[] = [];
+    orderedIds.forEach((_id, index) => {
+      const current = currentViews[index];
+      if (!current) {
+        return;
+      }
+      const currentOrder = normalizeOrder(current.order);
+      if (currentOrder === index) {
+        return;
+      }
+      updates.push({
+        ...current,
+        order: index,
+        updatedAt: now,
+      });
+    });
+    if (updates.length > 0) {
+      await db.views.bulkPut(updates);
+    }
+  });
+  notifyLocalChange();
 };
 
 export const deleteView = async (id: string): Promise<void> => {
