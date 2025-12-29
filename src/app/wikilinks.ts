@@ -2,10 +2,11 @@ export type ParsedWikilink = {
   start: number;
   end: number;
   raw: string;
-  kind: 'id' | 'title';
+  kind: 'id' | 'title' | 'target';
   id?: string;
   title?: string;
   display?: string;
+  target?: string;
 };
 
 export type WikilinkSnippet = {
@@ -20,12 +21,39 @@ export const parseWikilinks = (text: string): ParsedWikilink[] => {
   }
 
   const matches: ParsedWikilink[] = [];
-  const regex = /\[\[([^\]\n]+)\]\]/g;
+  const regex = /\[\[([^\]\n]+)\]\](?:\(([^)\n]+)\))?/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text))) {
     const raw = match[0];
     const content = match[1]?.trim() ?? '';
+    const targetRaw = match[2]?.trim() ?? '';
     if (!content) {
+      continue;
+    }
+
+    if (targetRaw) {
+      if (targetRaw.toLowerCase().startsWith('id:')) {
+        const id = targetRaw.slice(3).trim();
+        if (id) {
+          matches.push({
+            start: match.index,
+            end: match.index + raw.length,
+            raw,
+            kind: 'id',
+            id,
+            display: content,
+          });
+          continue;
+        }
+      }
+      matches.push({
+        start: match.index,
+        end: match.index + raw.length,
+        raw,
+        kind: 'target',
+        target: targetRaw,
+        display: content,
+      });
       continue;
     }
 
@@ -73,6 +101,23 @@ export const extractLinkTargets = (text: string) => {
     if (link.kind === 'title' && link.title) {
       titles.push(link.title);
     }
+    if (link.kind === 'target' && link.target) {
+      const normalized = link.target.trim();
+      if (!normalized) {
+        continue;
+      }
+      if (normalized.toLowerCase().startsWith('id:')) {
+        const id = normalized.slice(3).trim();
+        if (id) {
+          ids.push(id);
+        }
+        continue;
+      }
+      if (isExternalLinkTarget(normalized)) {
+        continue;
+      }
+      titles.push(normalized);
+    }
   }
 
   return { ids, titles };
@@ -104,11 +149,14 @@ export const findWikilinkSnippets = (
   const results: WikilinkSnippet[] = [];
   const links = parseWikilinks(text);
   links.forEach((link) => {
+    const targetTitle =
+      link.kind === 'target' && link.target ? link.target.trim().toLowerCase() : undefined;
     const isMatch =
       (idNeedle && link.kind === 'id' && link.id === idNeedle) ||
       (titleNeedle &&
         link.kind === 'title' &&
-        link.title?.trim().toLowerCase() === titleNeedle);
+        link.title?.trim().toLowerCase() === titleNeedle) ||
+      (titleNeedle && targetTitle && targetTitle === titleNeedle);
     if (!isMatch) {
       return;
     }
@@ -121,4 +169,19 @@ export const findWikilinkSnippets = (
     results.push({ snippet, start: link.start, end: link.end });
   });
   return results;
+};
+
+export const isExternalLinkTarget = (value: string) => {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith('id:')) {
+    return false;
+  }
+  if (lower.startsWith('www.')) {
+    return true;
+  }
+  return /^[a-z][a-z0-9+.-]*:/.test(normalized);
 };

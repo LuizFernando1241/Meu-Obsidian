@@ -20,7 +20,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useDebouncedCallback } from '../app/useDebouncedCallback';
 import { upgradeLegacyLinksInText } from '../app/upgradeLinks';
-import { parseWikilinks } from '../app/wikilinks';
+import { isExternalLinkTarget, parseWikilinks } from '../app/wikilinks';
 import LoadingState from '../components/LoadingState';
 import MoveToDialog from '../components/dialogs/MoveToDialog';
 import RenameDialog from '../components/dialogs/RenameDialog';
@@ -108,6 +108,17 @@ const makeBlock = (text = ''): Block => ({
   type: 'paragraph',
   text,
 });
+
+const normalizeExternalTarget = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.toLowerCase().startsWith('www.')) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+};
 
 const normalizeBlock = (block: Block): Block => {
   const type = isBlockType(block.type) ? block.type : 'paragraph';
@@ -275,6 +286,23 @@ export default function ItemPage() {
         }
         if (link.kind === 'title' && link.title) {
           titles.add(link.title);
+        }
+        if (link.kind === 'target' && link.target) {
+          const target = link.target.trim();
+          if (!target) {
+            continue;
+          }
+          if (target.toLowerCase().startsWith('id:')) {
+            const id = target.slice(3).trim();
+            if (id) {
+              ids.add(id);
+            }
+            continue;
+          }
+          if (isExternalLinkTarget(target)) {
+            continue;
+          }
+          titles.add(target);
         }
       }
     }
@@ -609,6 +637,13 @@ export default function ItemPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [redo, requestFocus, undo]);
 
+  const handleRequestCreateLink = React.useCallback((title: string) => {
+    if (!title.trim()) {
+      return;
+    }
+    setPendingLinkTitle(title.trim());
+  }, []);
+
   const renderTextWithLinks = React.useCallback(
     (text: string) => {
       if (!text) {
@@ -634,6 +669,7 @@ export default function ItemPage() {
             <Link
               key={`${link.id}-${index}`}
               component="button"
+              underline="always"
               onClick={() => navigate(`/item/${link.id}`)}
               sx={{ mx: 0.5 }}
             >
@@ -649,6 +685,7 @@ export default function ItemPage() {
               <Link
                 key={`${link.title}-${index}`}
                 component="button"
+                underline="always"
                 onClick={() => navigate(`/item/${resolution.id}`)}
                 sx={{ mx: 0.5 }}
               >
@@ -675,10 +712,90 @@ export default function ItemPage() {
                 <Link
                   key={`${linkTitle}-${index}`}
                   component="button"
+                  underline="always"
                   onClick={() => handleRequestCreateLink(linkTitle)}
                   sx={{ mx: 0.5 }}
                 >
                   {linkTitle}
+                </Link>,
+              );
+            }
+          }
+        } else if (link.kind === 'target' && link.target) {
+          const targetValue = link.target.trim();
+          const label = link.display || targetValue;
+          if (!targetValue) {
+            nodes.push(link.raw);
+          } else if (isExternalLinkTarget(targetValue)) {
+            const href = normalizeExternalTarget(targetValue);
+            nodes.push(
+              <Link
+                key={`${targetValue}-${index}`}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="always"
+                sx={{ mx: 0.5 }}
+              >
+                {label}
+              </Link>,
+            );
+          } else if (targetValue.toLowerCase().startsWith('id:')) {
+            const id = targetValue.slice(3).trim();
+            if (!id) {
+              nodes.push(link.raw);
+            } else {
+              const target = linkItemsById[id];
+              const resolvedLabel = target?.title || label || id;
+              nodes.push(
+                <Link
+                  key={`${id}-${index}`}
+                  component="button"
+                  underline="always"
+                  onClick={() => navigate(`/item/${id}`)}
+                  sx={{ mx: 0.5 }}
+                >
+                  {resolvedLabel}
+                </Link>,
+              );
+            }
+          } else {
+            const resolution = titleResolutions[targetValue];
+            if (resolution?.status === 'ok' && resolution.id) {
+              const target = linkItemsById[resolution.id];
+              const resolvedLabel = target?.title || label;
+              nodes.push(
+                <Link
+                  key={`${targetValue}-${index}`}
+                  component="button"
+                  underline="always"
+                  onClick={() => navigate(`/item/${resolution.id}`)}
+                  sx={{ mx: 0.5 }}
+                >
+                  {resolvedLabel}
+                </Link>,
+              );
+            } else if (resolution?.status === 'ambiguous') {
+              nodes.push(
+                <Box
+                  key={`${targetValue}-${index}`}
+                  component="span"
+                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mx: 0.5 }}
+                >
+                  <span>{label}</span>
+                  <Chip size="small" label="Ambiguo" variant="outlined" />
+                </Box>,
+              );
+            } else {
+              nodes.push(
+                <Link
+                  key={`${targetValue}-${index}`}
+                  component="button"
+                  underline="always"
+                  onClick={() => handleRequestCreateLink(targetValue)}
+                  sx={{ mx: 0.5 }}
+                >
+                  {label}
                 </Link>,
               );
             }
@@ -696,7 +813,7 @@ export default function ItemPage() {
 
       return nodes;
     },
-    [linkItemsById, navigate, titleResolutions],
+    [handleRequestCreateLink, linkItemsById, navigate, titleResolutions],
   );
 
   const renderBlockPreview = React.useCallback(
@@ -798,13 +915,6 @@ export default function ItemPage() {
     } finally {
       setMoveOpen(false);
     }
-  };
-
-  const handleRequestCreateLink = (title: string) => {
-    if (!title.trim()) {
-      return;
-    }
-    setPendingLinkTitle(title.trim());
   };
 
   const handleConfirmCreateLink = async () => {
