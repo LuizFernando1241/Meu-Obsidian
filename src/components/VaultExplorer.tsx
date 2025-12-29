@@ -276,7 +276,7 @@ export default function VaultExplorer({ isMobile, onNavigate }: VaultExplorerPro
         return false;
       }
       const visited = new Set<string>([nodeId]);
-      let current = parentId;
+      let current: string | undefined = parentId;
       while (current) {
         if (visited.has(current)) {
           return false;

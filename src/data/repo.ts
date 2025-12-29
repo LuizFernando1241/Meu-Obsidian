@@ -465,7 +465,7 @@ export const reorderNodesInParent = async (
   await db.transaction('rw', db.items, async () => {
     const currentItems = await db.items.bulkGet(orderedIds);
     const updates: Node[] = [];
-    orderedIds.forEach((id, index) => {
+    orderedIds.forEach((_id, index) => {
       const current = currentItems[index];
       if (!current) {
         return;
