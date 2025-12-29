@@ -31,7 +31,6 @@ import { useNotifier } from '../components/Notifier';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useItem } from '../data/hooks';
 import { filterActiveNodes } from '../data/deleted';
-import { resolveSchemaIdForNode } from '../data/schemaResolve';
 import {
   createNote,
   getItem,
@@ -48,8 +47,6 @@ import { db } from '../data/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import FolderPage from './FolderPage';
 import { getPath } from '../vault/path';
-import PropertiesEditor from '../components/PropertiesEditor';
-import { buildDefaultSchema } from '../data/schemaDefaults';
 
 const TYPE_LABELS: Record<NodeType, string> = {
   note: 'Nota',
@@ -200,19 +197,6 @@ export default function ItemPage() {
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
   );
-  const schemas = useLiveQuery(() => db.schemas.toArray(), []) ?? [];
-  const schemasById = React.useMemo(
-    () => new Map(schemas.map((schema) => [schema.id, schema])),
-    [schemas],
-  );
-  const fallbackSchema = React.useMemo(() => buildDefaultSchema(Date.now()), []);
-  const effectiveSchema = React.useMemo(() => {
-    if (!liveItem) {
-      return fallbackSchema;
-    }
-    const schemaId = resolveSchemaIdForNode(liveItem.id, nodesById);
-    return schemasById.get(schemaId) ?? schemasById.get('global') ?? fallbackSchema;
-  }, [fallbackSchema, liveItem, nodesById, schemasById]);
   const breadcrumbNodes = React.useMemo(
     () => (itemId ? getPath(itemId, nodesById) : []),
     [itemId, nodesById],
@@ -816,17 +800,6 @@ export default function ItemPage() {
     }
   };
 
-  const handlePropsChange = async (nextProps: Record<string, unknown>) => {
-    if (!itemId || !liveItem) {
-      return;
-    }
-    try {
-      await updateItemProps(itemId, { props: nextProps });
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   const handleRequestCreateLink = (title: string) => {
     if (!title.trim()) {
       return;
@@ -959,26 +932,18 @@ export default function ItemPage() {
                 <Chip key={tag} size="small" label={tag} variant="outlined" />
               ))}
             </Stack>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { sm: 'auto' } }}>
-              {saveLabel && <Typography color="text.secondary">{saveLabel}</Typography>}
-              <IconButton
-                size="small"
-                onClick={handleTogglePreview}
-                aria-label={isPreview ? 'Editar' : 'Visualizar'}
-              >
-                {isPreview ? <Edit /> : <Visibility />}
-              </IconButton>
-            </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { sm: 'auto' } }}>
+            {saveLabel && <Typography color="text.secondary">{saveLabel}</Typography>}
+            <IconButton
+              size="small"
+              onClick={handleTogglePreview}
+              aria-label={isPreview ? 'Editar' : 'Visualizar'}
+            >
+              {isPreview ? <Edit /> : <Visibility />}
+            </IconButton>
           </Stack>
-          {liveItem && (
-            <PropertiesEditor
-              node={liveItem}
-              onChange={handlePropsChange}
-              variant="compact"
-              schema={effectiveSchema}
-            />
-          )}
         </Stack>
+      </Stack>
 
         <Stack spacing={2}>
           {isPreview ? (
