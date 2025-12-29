@@ -9,6 +9,7 @@ import { getEffectiveSchema } from './schemaResolve';
 import { buildDefaultSchema } from './schemaDefaults';
 import { enqueueItemWrite } from './writeQueue';
 import { cloneBlocksWithNewIds } from '../editor/markdownToBlocks';
+import { sortNodes } from '../vault/sortNodes';
 import type {
   Block,
   FolderNode,
@@ -138,6 +139,21 @@ const defaultTitleByType: Record<NodeType, string> = {
   folder: 'Nova pasta',
 };
 
+const normalizeOrder = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+const getNextOrderValue = async (parentId?: string): Promise<number> => {
+  const rawItems = parentId
+    ? await db.items.where('parentId').equals(parentId).toArray()
+    : await db.items.filter((item) => !item.parentId).toArray();
+  const items = filterActiveNodes(rawItems as Node[]);
+  const maxOrder = items.reduce((max, item) => {
+    const order = normalizeOrder(item.order);
+    return order !== undefined && order > max ? order : max;
+  }, -1);
+  return maxOrder + 1;
+};
+
 type CreateNoteInput = {
   title?: string;
   parentId?: string;
@@ -161,6 +177,7 @@ type CreateFolderInput = {
 
 export const createNote = async (partial: CreateNoteInput): Promise<NoteNode> => {
   const now = Date.now();
+  const order = await getNextOrderValue(partial.parentId);
   const schema = partial.parentId
     ? await getEffectiveSchema(partial.parentId)
     : await ensureDefaultSchema();
@@ -177,6 +194,7 @@ export const createNote = async (partial: CreateNoteInput): Promise<NoteNode> =>
     nodeType: 'note',
     title: partial.title ?? defaultTitleByType.note,
     parentId: partial.parentId,
+    order,
     content: ensureContent(resolvedContent),
     tags: partial.tags ?? [],
     favorite: partial.favorite ?? false,
@@ -195,6 +213,7 @@ export const createNote = async (partial: CreateNoteInput): Promise<NoteNode> =>
 
 export const createFolder = async (partial: CreateFolderInput): Promise<FolderNode> => {
   const now = Date.now();
+  const order = await getNextOrderValue(partial.parentId);
   const schema = await ensureDefaultSchema();
   const normalizedProps = normalizeProps(partial.props ?? {}, schema, {
     applyDefaults: true,
@@ -204,6 +223,7 @@ export const createFolder = async (partial: CreateFolderInput): Promise<FolderNo
     nodeType: 'folder',
     title: partial.title ?? defaultTitleByType.folder,
     parentId: partial.parentId,
+    order,
     tags: partial.tags ?? [],
     favorite: partial.favorite ?? false,
     linksTo: partial.linksTo ?? [],
@@ -410,7 +430,65 @@ export const renameNode = async (id: string, title: string): Promise<Node> => {
 };
 
 export const moveNode = async (id: string, parentId?: string): Promise<Node> =>
-  updateItemProps(id, { parentId });
+  enqueueItemWrite(id, async () =>
+    db.transaction('rw', db.items, async () => {
+      const current = await db.items.get(id);
+      if (!current) {
+        throw new Error('Item nao encontrado');
+      }
+      const order = await getNextOrderValue(parentId);
+      await db.items.update(id, {
+        parentId,
+        order,
+        rev: (current.rev ?? 1) + 1,
+        updatedAt: Date.now(),
+      });
+      const nextItem = await db.items.get(id);
+      if (!nextItem) {
+        throw new Error('Item nao encontrado');
+      }
+      return nextItem as Node;
+    }),
+  ).then((next) => {
+    notifyLocalChange();
+    return next as Node;
+  });
+
+export const reorderNodesInParent = async (
+  parentId: string | undefined,
+  orderedIds: string[],
+): Promise<void> => {
+  if (orderedIds.length === 0) {
+    return;
+  }
+  const now = Date.now();
+  await db.transaction('rw', db.items, async () => {
+    const currentItems = await db.items.bulkGet(orderedIds);
+    const updates: Node[] = [];
+    orderedIds.forEach((id, index) => {
+      const current = currentItems[index];
+      if (!current) {
+        return;
+      }
+      const currentOrder = normalizeOrder(current.order);
+      const sameParent = (current.parentId ?? undefined) === (parentId ?? undefined);
+      if (currentOrder === index && sameParent) {
+        return;
+      }
+      updates.push({
+        ...(current as Node),
+        parentId,
+        order: index,
+        rev: (current.rev ?? 1) + 1,
+        updatedAt: now,
+      });
+    });
+    if (updates.length > 0) {
+      await db.items.bulkPut(updates);
+    }
+  });
+  notifyLocalChange();
+};
 
 export const updateChecklistBlock = async (
   noteId: string,
@@ -766,10 +844,10 @@ export const listByNodeType = async (nodeType: NodeType) => {
 export const listChildren = async (parentId?: string) => {
   if (!parentId) {
     const items = await db.items.filter((item) => !item.parentId).toArray();
-    return filterActiveNodes(items as Node[]);
+    return sortNodes(filterActiveNodes(items as Node[]));
   }
   const items = await db.items.where('parentId').equals(parentId).toArray();
-  return filterActiveNodes(items as Node[]);
+  return sortNodes(filterActiveNodes(items as Node[]));
 };
 
 export const listFavorites = async () => {

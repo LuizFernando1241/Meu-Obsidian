@@ -1,25 +1,13 @@
 import type { Node, NodeType } from '../data/types';
+import { compareNodes } from './sortNodes';
 
 export type TreeNode = {
   id: string;
   nodeType: NodeType;
   title: string;
   parentId?: string;
+  order?: number;
   children?: TreeNode[];
-};
-
-const normalizeTitle = (value: string | undefined) => value?.trim() || 'Sem titulo';
-
-const compareNodes = (left: TreeNode, right: TreeNode) => {
-  if (left.nodeType !== right.nodeType) {
-    return left.nodeType === 'folder' ? -1 : 1;
-  }
-  const leftTitle = normalizeTitle(left.title).toLowerCase();
-  const rightTitle = normalizeTitle(right.title).toLowerCase();
-  if (leftTitle === rightTitle) {
-    return left.id.localeCompare(right.id);
-  }
-  return leftTitle.localeCompare(rightTitle);
 };
 
 const isValidParent = (
@@ -70,8 +58,9 @@ export const buildTree = (nodes: Node[]) => {
     byId.set(node.id, {
       id: node.id,
       nodeType: node.nodeType,
-      title: normalizeTitle(node.title),
+      title: node.title?.trim() || 'Sem titulo',
       parentId: node.parentId,
+      order: node.order,
     });
   });
 

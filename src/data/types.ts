@@ -65,6 +65,7 @@ export type BaseNode = {
   nodeType: NodeType;
   title: string;
   parentId?: string;
+  order?: number;
   tags: string[];
   favorite: boolean;
   linksTo?: string[];

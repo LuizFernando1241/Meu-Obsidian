@@ -16,6 +16,7 @@ import { createFolder, createNote, deleteNode, moveNode, renameNode } from '../d
 import type { Block, Node as DataNode } from '../data/types';
 import { getPath } from '../vault/path';
 import { getTemplateContent } from '../vault/templates';
+import { sortNodes } from '../vault/sortNodes';
 
 type FolderPageProps = {
   folderId: string;
@@ -43,19 +44,16 @@ export default function FolderPage({ folderId }: FolderPageProps) {
       : [];
   const hasFolderTemplate = folderTemplateBlocks.length > 0;
 
+  const orderedChildren = React.useMemo(() => sortNodes([...children]), [children]);
+
   const subfolders = React.useMemo(
     () =>
-      [...children]
-        .filter((item) => item.nodeType === 'folder')
-        .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
-    [children],
+      orderedChildren.filter((item) => item.nodeType === 'folder'),
+    [orderedChildren],
   );
   const notes = React.useMemo(
-    () =>
-      [...children]
-        .filter((item) => item.nodeType === 'note')
-        .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
-    [children],
+    () => orderedChildren.filter((item) => item.nodeType === 'note'),
+    [orderedChildren],
   );
 
   const handleCreateFolder = async () => {

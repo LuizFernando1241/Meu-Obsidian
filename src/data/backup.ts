@@ -555,6 +555,11 @@ const normalizeNode = (item: Node & { type?: string }): Node => {
     nodeType,
     title: item.title ?? 'Sem titulo',
     parentId: typeof item.parentId === 'string' ? item.parentId : undefined,
+    order:
+      typeof (item as { order?: unknown }).order === 'number' &&
+      Number.isFinite((item as { order?: unknown }).order)
+        ? ((item as { order?: unknown }).order as number)
+        : undefined,
     tags,
     favorite,
     linksTo,
