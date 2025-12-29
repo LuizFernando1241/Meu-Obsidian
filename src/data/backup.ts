@@ -89,7 +89,8 @@ const normalizeStringArray = (value: unknown): string[] | undefined => {
     return undefined;
   }
   const filtered = value.filter(
-    (entry): entry is string => typeof entry === 'string' && entry.trim(),
+    (entry): entry is string =>
+      typeof entry === 'string' && entry.trim().length > 0,
   );
   return filtered.length > 0 ? filtered : undefined;
 };
@@ -153,6 +154,28 @@ const normalizeViewSort = (value: unknown): SavedViewSort | undefined => {
   return { by, dir };
 };
 
+type ViewTableColumn =
+  | 'title'
+  | 'type'
+  | 'path'
+  | 'status'
+  | 'priority'
+  | 'due'
+  | 'updatedAt';
+
+const VIEW_TABLE_COLUMNS = new Set<ViewTableColumn>([
+  'title',
+  'type',
+  'path',
+  'status',
+  'priority',
+  'due',
+  'updatedAt',
+]);
+
+const isViewTableColumn = (value: string): value is ViewTableColumn =>
+  VIEW_TABLE_COLUMNS.has(value as ViewTableColumn);
+
 const normalizeViewTable = (value: unknown): SavedView['table'] | undefined => {
   if (!isRecord(value)) {
     return undefined;
@@ -160,16 +183,7 @@ const normalizeViewTable = (value: unknown): SavedView['table'] | undefined => {
   const rawColumns = Array.isArray(value.columns)
     ? value.columns.filter((entry) => typeof entry === 'string')
     : [];
-  const allowed = new Set([
-    'title',
-    'type',
-    'path',
-    'status',
-    'priority',
-    'due',
-    'updatedAt',
-  ]);
-  const columns = rawColumns.filter((entry) => allowed.has(entry));
+  const columns = rawColumns.filter(isViewTableColumn);
   const compact = typeof value.compact === 'boolean' ? value.compact : undefined;
   if (columns.length === 0 && compact === undefined) {
     return undefined;
@@ -407,7 +421,9 @@ const makeParagraph = (): Block => ({
   text: '',
 });
 
-const mapLegacyPriority = (value?: number | null) => {
+const mapLegacyPriority = (
+  value?: number | null,
+): 'P1' | 'P2' | 'P3' | undefined => {
   if (value === 1) {
     return 'P1';
   }

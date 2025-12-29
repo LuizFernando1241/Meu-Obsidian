@@ -24,7 +24,10 @@ export const parseVault = (text: string): Vault => {
   }
 
   try {
-    const parsed = JSON.parse(text) as Partial<Vault>;
+    const parsed = JSON.parse(text) as Partial<Vault> & {
+      schemaDef?: PropertySchema;
+      schemas?: PropertySchema[];
+    };
     const items = Array.isArray(parsed.items) ? (parsed.items as Item[]) : [];
     const tombstones = Array.isArray(parsed.tombstones)
       ? (parsed.tombstones as Tombstone[])

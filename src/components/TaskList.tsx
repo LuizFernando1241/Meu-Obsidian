@@ -296,7 +296,6 @@ export default function TaskList({
       </Box>
     );
   };
-  );
 
   return (
     <>
@@ -342,6 +341,6 @@ export default function TaskList({
           </Button>
         </DialogActions>
       </Dialog>
-    </List>
+    </>
   );
 }

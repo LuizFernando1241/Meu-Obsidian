@@ -34,7 +34,7 @@ const resolveSchemaIdFromDb = async (nodeId: string): Promise<string> => {
   let currentId: string | undefined = nodeId;
 
   while (currentId) {
-    const node = await db.items.get(currentId);
+    const node = (await db.items.get(currentId)) as Node | undefined;
     if (!node) {
       break;
     }

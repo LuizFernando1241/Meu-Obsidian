@@ -21,6 +21,16 @@ import { addDaysISO, getTodayISO } from '../../tasks/date';
 
 type GroupMode = 'path' | 'note' | 'none';
 
+type NoteGroup = { kind: 'note'; key: string; label: string; tasks: IndexedTask[] };
+type AllGroup = { kind: 'all'; key: string; label: string; tasks: IndexedTask[] };
+type PathGroup = {
+  kind: 'path';
+  key: string;
+  label: string;
+  notes: { key: string; label: string; tasks: IndexedTask[] }[];
+};
+type TaskGroup = NoteGroup | AllGroup | PathGroup;
+
 type TaskGroupedListProps = {
   tasks: IndexedTask[];
   groupMode: GroupMode;
@@ -119,9 +129,9 @@ export default function TaskGroupedList({
     writeStored(key, value);
   }, []);
 
-  const grouped = React.useMemo(() => {
+  const grouped = React.useMemo<TaskGroup[]>(() => {
     if (groupMode === 'none') {
-      return [{ key: 'all', label: 'Tarefas', tasks }];
+      return [{ kind: 'all', key: 'all', label: 'Tarefas', tasks }];
     }
 
     if (groupMode === 'note') {
@@ -133,6 +143,7 @@ export default function TaskGroupedList({
         map.set(key, entry);
       });
       return Array.from(map.entries()).map(([key, entry]) => ({
+        kind: 'note',
         key,
         label: entry.label,
         tasks: entry.tasks,
@@ -156,6 +167,7 @@ export default function TaskGroupedList({
       noteMap.set(noteKey, entry);
     });
     return Array.from(pathMap.entries()).map(([pathKey, noteMap]) => ({
+      kind: 'path',
       key: pathKey,
       label: pathKey,
       notes: Array.from(noteMap.entries()).map(([noteId, entry]) => ({
@@ -172,15 +184,20 @@ export default function TaskGroupedList({
     }
     if (groupMode === 'note') {
       return grouped.flatMap((group) =>
-        getExpanded(`${storageKey}:note:${group.key}`) ? group.tasks : [],
+        group.kind === 'note' && getExpanded(`${storageKey}:note:${group.key}`)
+          ? group.tasks
+          : [],
       );
     }
     return grouped.flatMap((group) => {
-      const pathExpanded = getExpanded(`${storageKey}:path:${group.key}`);
-      if (!pathExpanded || !('notes' in group)) {
+      if (group.kind !== 'path') {
         return [];
       }
-      return (group.notes ?? []).flatMap((note) =>
+      const pathExpanded = getExpanded(`${storageKey}:path:${group.key}`);
+      if (!pathExpanded) {
+        return [];
+      }
+      return group.notes.flatMap((note) =>
         getExpanded(`${storageKey}:note:${note.key}`) ? note.tasks : [],
       );
     });
@@ -342,26 +359,25 @@ export default function TaskGroupedList({
     <Box tabIndex={0} onKeyDown={handleKeyDown}>
       <Stack spacing={2}>
         {grouped.map((group) => {
-          const isPathMode = groupMode === 'path' && 'notes' in group;
+          const isPathMode = group.kind === 'path';
           const groupKey = isPathMode
             ? `${storageKey}:path:${group.key}`
             : `${storageKey}:note:${group.key}`;
           const expanded = getExpanded(groupKey, true);
           const taskCount = isPathMode
-            ? group.notes?.reduce(
+            ? group.notes.reduce(
                 (sum, note) => sum + note.tasks.filter((task) => !task.checked).length,
                 0,
-              ) ?? 0
-            : group.tasks?.filter((task) => !task.checked).length ?? 0;
+              )
+            : group.tasks.filter((task) => !task.checked).length;
           const snoozedCount = isPathMode
-            ? group.notes?.reduce(
+            ? group.notes.reduce(
                 (sum, note) =>
                   sum +
                   note.tasks.filter((task) => !task.checked && task.isSnoozed).length,
                 0,
-              ) ?? 0
-            : group.tasks?.filter((task) => !task.checked && task.isSnoozed).length ??
-              0;
+              )
+            : group.tasks.filter((task) => !task.checked && task.isSnoozed).length;
 
           return (
             <Accordion
@@ -426,7 +442,7 @@ export default function TaskGroupedList({
                   </Stack>
                 ) : (
                   <TaskList
-                    tasks={group.tasks ?? []}
+                    tasks={group.tasks}
                     emptyMessage={emptyMessage}
                     onToggle={onToggle}
                     onOpenNote={onOpenNote}

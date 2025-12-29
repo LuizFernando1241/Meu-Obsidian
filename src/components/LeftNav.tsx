@@ -22,6 +22,7 @@ import {
   ViewList,
 } from '@mui/icons-material';
 import { useLiveQuery } from 'dexie-react-hooks';
+import React from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { GIT_SHA } from '../app/buildInfo';

@@ -683,16 +683,21 @@ export default function ItemPage() {
               </Box>,
             );
           } else {
-            nodes.push(
-              <Link
-                key={`${link.title}-${index}`}
-                component="button"
-                onClick={() => handleRequestCreateLink(link.title)}
-                sx={{ mx: 0.5 }}
-              >
-                {link.title}
-              </Link>,
-            );
+            const linkTitle = link.title;
+            if (!linkTitle) {
+              nodes.push(link.raw);
+            } else {
+              nodes.push(
+                <Link
+                  key={`${linkTitle}-${index}`}
+                  component="button"
+                  onClick={() => handleRequestCreateLink(linkTitle)}
+                  sx={{ mx: 0.5 }}
+                >
+                  {linkTitle}
+                </Link>,
+              );
+            }
           }
         } else {
           nodes.push(link.raw);

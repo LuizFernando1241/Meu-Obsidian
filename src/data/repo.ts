@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { extractLinkTargets } from '../app/wikilinks';
 import { getNextRecurringDue } from '../tasks/date';
-import { filterActiveNodes, isSoftDeleted } from './deleted';
+import { filterActiveNodes } from './deleted';
 import { db } from './db';
 import { normalizeProps } from './propsNormalize';
 import { getEffectiveSchema } from './schemaResolve';
@@ -240,11 +240,15 @@ const hasOwn = <T extends object>(obj: T, key: keyof T) =>
 
 const mergeChecklistMeta = (
   current: ChecklistBlock['meta'] | undefined,
-  patch: Partial<ChecklistBlock['meta']>,
+  patch?: Partial<NonNullable<ChecklistBlock['meta']>>,
 ) => {
   const next: ChecklistBlock['meta'] = { ...(current ?? {}) };
-  Object.entries(patch).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') {
+  Object.entries(patch ?? {}).forEach(([key, value]) => {
+    if (
+      value === undefined ||
+      value === null ||
+      (typeof value === 'string' && value.trim() === '')
+    ) {
       delete (next as Record<string, unknown>)[key];
       return;
     }

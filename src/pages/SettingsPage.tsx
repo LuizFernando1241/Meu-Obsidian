@@ -1008,7 +1008,7 @@ export default function SettingsPage() {
         title="Restaurar backup local?"
         description="Isso substitui seus dados locais pelo backup selecionado."
         confirmLabel="Restaurar"
-        confirmColor="warning"
+        confirmColor="primary"
         onConfirm={handleConfirmRestoreBackup}
         onClose={() => setAutoBackupRestore(null)}
         isLoading={autoBackupBusy}

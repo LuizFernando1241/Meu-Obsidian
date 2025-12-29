@@ -74,7 +74,7 @@ export default function ViewKanban({
   const columnConfigs = React.useMemo<ColumnConfig[]>(() => {
     const normalized = columns.map((entry) => entry.trim()).filter(Boolean);
     const unique = Array.from(new Set(normalized));
-    const configs = unique.map((value) => ({
+    const configs: ColumnConfig[] = unique.map((value) => ({
       id: value,
       label: formatStatusLabel(value),
       statusValue: value,
