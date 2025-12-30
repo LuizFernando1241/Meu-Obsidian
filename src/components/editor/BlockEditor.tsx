@@ -80,14 +80,9 @@ const renderLinkDecorations = (
       lastIndex = link.end;
       return;
     }
-    const prefix = rawText.slice(0, 2);
     const inner = rawText.slice(2, closeIndex);
     const pipeIndex = inner.indexOf('|');
-    const innerHidden = pipeIndex === -1 ? '' : inner.slice(0, pipeIndex + 1);
-    const displayText =
-      pipeIndex === -1 ? inner : inner.slice(pipeIndex + 1);
-    const closing = rawText.slice(closeIndex, closeIndex + 2);
-    const suffix = rawText.slice(closeIndex + 2);
+    const displayText = pipeIndex === -1 ? inner : inner.slice(pipeIndex + 1);
     nodes.push(
       <Box
         component="span"
@@ -99,23 +94,7 @@ const renderLinkDecorations = (
           textDecorationColor: 'primary.main',
         }}
       >
-        <Box component="span" sx={{ color: 'transparent' }}>
-          {prefix}
-        </Box>
-        {innerHidden && (
-          <Box component="span" sx={{ color: 'transparent' }}>
-            {innerHidden}
-          </Box>
-        )}
-        <Box component="span">{displayText}</Box>
-        <Box component="span" sx={{ color: 'transparent' }}>
-          {closing}
-        </Box>
-        {suffix && (
-          <Box component="span" sx={{ color: 'transparent' }}>
-            {suffix}
-          </Box>
-        )}
+        {displayText}
       </Box>,
     );
     lastIndex = link.end;
@@ -210,16 +189,16 @@ const BaseTextField = ({
         if (!text) {
           return;
         }
-        const match = links.find(
-          (link) => selectionStart >= link.start && selectionStart <= link.end,
-        );
-        if (!match) {
-          return;
-        }
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
           event.stopPropagation();
           onRequestRawEdit?.({ start: selectionStart, end: selectionEnd });
+          return;
+        }
+        const match = links.find(
+          (link) => selectionStart >= link.start && selectionStart <= link.end,
+        );
+        if (!match) {
           return;
         }
         if (!onLinkClick) {
@@ -235,6 +214,9 @@ const BaseTextField = ({
       onBlur={onBlur}
       placeholder={placeholder}
       inputRef={inputRef as React.Ref<HTMLInputElement | HTMLTextAreaElement>}
+      inputProps={{
+        readOnly: isDisplayMode,
+      }}
       InputProps={{
         disableUnderline: true,
         sx: {
