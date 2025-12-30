@@ -209,9 +209,9 @@ const BaseTextField = ({
             ? {
                 '& .MuiInputBase-input': {
                   color: 'transparent',
-                  caretColor: 'text.primary',
+                  caretColor: (theme) => theme.palette.text.primary,
                   '&::placeholder': {
-                    color: 'text.secondary',
+                    color: (theme) => theme.palette.text.secondary,
                     opacity: 1,
                   },
                 },
