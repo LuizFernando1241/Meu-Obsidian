@@ -109,7 +109,11 @@ export default function SlashMenu({
       open={open}
       anchorEl={anchorEl}
       onClose={onClose}
-      MenuListProps={{ dense: true }}
+      disableAutoFocusItem
+      disableAutoFocus
+      disableEnforceFocus
+      disableRestoreFocus
+      MenuListProps={{ dense: true, autoFocusItem: false }}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       transformOrigin={{ vertical: 'top', horizontal: 'left' }}
     >
