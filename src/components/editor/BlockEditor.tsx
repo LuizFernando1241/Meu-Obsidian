@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 
+import { parseWikilinks } from '../../app/wikilinks';
 import type { Block, BlockType } from '../../data/types';
 
 type BlockEditorProps = {
@@ -49,6 +50,40 @@ const isBlockType = (value: string | undefined): value is BlockType =>
 
 const getBlockText = (block: Block) => block.text ?? '';
 
+const renderLinkDecorations = (text: string) => {
+  if (!text) {
+    return null;
+  }
+  const links = parseWikilinks(text);
+  if (links.length === 0) {
+    return null;
+  }
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  links.forEach((link, index) => {
+    if (link.start > lastIndex) {
+      nodes.push(text.slice(lastIndex, link.start));
+    }
+    nodes.push(
+      <Box
+        component="span"
+        key={`${link.start}-${index}`}
+        sx={{
+          textDecoration: 'underline',
+          textDecorationColor: 'primary.main',
+        }}
+      >
+        {text.slice(link.start, link.end)}
+      </Box>,
+    );
+    lastIndex = link.end;
+  });
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+};
+
 const BaseTextField = ({
   block,
   onChange,
@@ -59,6 +94,7 @@ const BaseTextField = ({
   placeholder,
   inputSx,
   onPaste,
+  showLinkDecorations = true,
 }: {
   block: Block;
   onChange: (
@@ -72,31 +108,58 @@ const BaseTextField = ({
   inputRef?: React.Ref<HTMLElement>;
   placeholder?: string;
   inputSx?: Record<string, unknown>;
+  showLinkDecorations?: boolean;
 }) => (
-  <TextField
-    variant="standard"
-    fullWidth
-    multiline
-    minRows={1}
-    value={getBlockText(block)}
-    onChange={(event) => {
-      const target = event.target as HTMLInputElement | HTMLTextAreaElement;
-      onChange(event.target.value, {
-        selectionStart: target.selectionStart ?? undefined,
-        selectionEnd: target.selectionEnd ?? undefined,
-      });
-    }}
-    onKeyDown={onKeyDown}
-    onPaste={onPaste}
-    onFocus={onFocus}
-    onBlur={onBlur}
-    placeholder={placeholder}
-    inputRef={inputRef as React.Ref<HTMLInputElement | HTMLTextAreaElement>}
-    InputProps={{
-      disableUnderline: true,
-      sx: inputSx,
-    }}
-  />
+  <Box sx={{ position: 'relative', width: '100%' }}>
+    {showLinkDecorations && (
+      <Box
+        aria-hidden
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          color: 'transparent',
+          pointerEvents: 'none',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          fontSize: 'inherit',
+          fontFamily: 'inherit',
+          lineHeight: 'inherit',
+          ...(inputSx ?? {}),
+        }}
+      >
+        {renderLinkDecorations(getBlockText(block))}
+      </Box>
+    )}
+    <TextField
+      variant="standard"
+      fullWidth
+      multiline
+      minRows={1}
+      value={getBlockText(block)}
+      onChange={(event) => {
+        const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+        onChange(event.target.value, {
+          selectionStart: target.selectionStart ?? undefined,
+          selectionEnd: target.selectionEnd ?? undefined,
+        });
+      }}
+      onKeyDown={onKeyDown}
+      onPaste={onPaste}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      placeholder={placeholder}
+      inputRef={inputRef as React.Ref<HTMLInputElement | HTMLTextAreaElement>}
+      InputProps={{
+        disableUnderline: true,
+        sx: {
+          position: 'relative',
+          zIndex: 1,
+          backgroundColor: 'transparent',
+          ...(inputSx ?? {}),
+        },
+      }}
+    />
+  </Box>
 );
 
 export default function BlockEditor({
@@ -219,6 +282,7 @@ export default function BlockEditor({
           onBlur={onBlur}
           inputRef={inputRef}
           placeholder="Codigo..."
+          showLinkDecorations={false}
           inputSx={{
             fontFamily:
               'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
