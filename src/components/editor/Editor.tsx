@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Stack } from '@mui/material';
 import { v4 as uuidv4 } from 'uuid';
 
+import type { ParsedWikilink } from '../../app/wikilinks';
 import { replaceRange } from '../../app/wikilinks';
 import { createNote, searchByTitlePrefix } from '../../data/repo';
 import type { Block, BlockType, Node } from '../../data/types';
@@ -36,6 +37,7 @@ type EditorProps = {
   onFocusBlock?: (blockId: string) => void;
   onPromoteChecklist?: (blockId: string, text: string) => void;
   onChecklistToggleTask?: (taskId: string, checked: boolean) => void;
+  onLinkClick?: (link: ParsedWikilink) => void;
 };
 
 const BLOCK_TYPES: BlockType[] = [
@@ -204,7 +206,9 @@ export default function Editor({
   onFocusBlock,
   onPromoteChecklist,
   onChecklistToggleTask,
+  onLinkClick,
 }: EditorProps) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
   const blockRefs = React.useRef<Record<string, HTMLElement | null>>({});
   const blocksRef = React.useRef(blocks);
 
@@ -220,6 +224,12 @@ export default function Editor({
   const [overId, setOverId] = React.useState<string | null>(null);
   const [dropPosition, setDropPosition] = React.useState<'above' | 'below' | null>(null);
   const lastFocusedIdRef = React.useRef<string | null>(null);
+  const selectionAnchorRef = React.useRef<string | null>(null);
+  const [selectedBlockIds, setSelectedBlockIds] = React.useState<string[]>([]);
+  const selectedIdSet = React.useMemo(
+    () => new Set(selectedBlockIds),
+    [selectedBlockIds],
+  );
 
   React.useEffect(() => {
     blocksRef.current = blocks;
@@ -239,6 +249,57 @@ export default function Editor({
     },
     [onBlocksChangeStructural, onBlocksChangeTyping],
   );
+
+  React.useEffect(() => {
+    setSelectedBlockIds((prev) => prev.filter((id) => blocksRef.current.some((b) => b.id === id)));
+  }, [blocks]);
+
+  React.useEffect(() => {
+    if (selectedBlockIds.length === 0) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const active = document.activeElement;
+      if (containerRef.current && active && !containerRef.current.contains(active)) {
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelectedBlockIds([]);
+        selectionAnchorRef.current = null;
+        return;
+      }
+      if (event.key !== 'Backspace' && event.key !== 'Delete') {
+        return;
+      }
+      event.preventDefault();
+      const selected = new Set(selectedBlockIds);
+      if (selected.size === 0) {
+        return;
+      }
+      const currentBlocks = blocksRef.current;
+      const indices = currentBlocks
+        .map((block, index) => (selected.has(block.id) ? index : -1))
+        .filter((index) => index !== -1);
+      if (indices.length === 0) {
+        return;
+      }
+      const minIndex = Math.min(...indices);
+      const remaining = currentBlocks.filter((block) => !selected.has(block.id));
+      const nextBlocks =
+        remaining.length === 0 ? [createEmptyBlock()] : remaining;
+      updateBlocks(() => nextBlocks, 'structural');
+      setSelectedBlockIds([]);
+      selectionAnchorRef.current = null;
+      const nextFocus =
+        nextBlocks[minIndex]?.id ?? nextBlocks[minIndex - 1]?.id ?? nextBlocks[0]?.id;
+      if (nextFocus) {
+        setFocusTarget({ id: nextFocus, position: 'start' });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedBlockIds, updateBlocks]);
 
   const clearDragState = React.useCallback(() => {
     setDraggingId(null);
@@ -397,6 +458,46 @@ export default function Editor({
     }
     setFocusTarget({ id: targetId, position: focusRequest.position ?? 'end' });
   }, [focusRequest?.nonce]);
+
+  const handleSelectBlock = React.useCallback(
+    (event: React.MouseEvent, blockId: string) => {
+      const blocksSnapshot = blocksRef.current;
+      const blockIndex = blocksSnapshot.findIndex((block) => block.id === blockId);
+      if (blockIndex === -1) {
+        return;
+      }
+      if (event.shiftKey && selectionAnchorRef.current) {
+        const anchorIndex = blocksSnapshot.findIndex(
+          (block) => block.id === selectionAnchorRef.current,
+        );
+        const from = anchorIndex === -1 ? blockIndex : Math.min(anchorIndex, blockIndex);
+        const to = anchorIndex === -1 ? blockIndex : Math.max(anchorIndex, blockIndex);
+        const rangeIds = blocksSnapshot.slice(from, to + 1).map((block) => block.id);
+        setSelectedBlockIds(rangeIds);
+        return;
+      }
+
+      if (event.metaKey || event.ctrlKey) {
+        setSelectedBlockIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(blockId)) {
+            next.delete(blockId);
+          } else {
+            next.add(blockId);
+          }
+          return blocksSnapshot
+            .filter((block) => next.has(block.id))
+            .map((block) => block.id);
+        });
+        selectionAnchorRef.current = blockId;
+        return;
+      }
+
+      setSelectedBlockIds([blockId]);
+      selectionAnchorRef.current = blockId;
+    },
+    [],
+  );
 
   const updateSlashState = React.useCallback(
     (blockId: string, text: string) => {
@@ -872,6 +973,10 @@ export default function Editor({
     (block: Block) => {
       lastFocusedIdRef.current = block.id;
       onFocusBlock?.(block.id);
+      if (selectedBlockIds.length > 0) {
+        setSelectedBlockIds([]);
+        selectionAnchorRef.current = null;
+      }
       const text = block.text ?? '';
       if (text.startsWith('/')) {
         updateSlashState(block.id, text);
@@ -883,7 +988,7 @@ export default function Editor({
         setLinkState(null);
       }
     },
-    [onFocusBlock, updateSlashState, slashState, linkState],
+    [onFocusBlock, updateSlashState, slashState, linkState, selectedBlockIds.length],
   );
 
   const handleSlashSelect = React.useCallback(
@@ -982,7 +1087,7 @@ export default function Editor({
 
   return (
     <>
-      <Stack spacing={2}>
+      <Stack spacing={2} ref={containerRef}>
         {(() => {
           let numberedCounter = 0;
           return blocks.map((block, index) => {
@@ -996,13 +1101,18 @@ export default function Editor({
             numberedCounter = 0;
           }
           const listNumber = blockType === 'numbered' ? numberedCounter : undefined;
+          const isSelected = selectedIdSet.has(block.id);
 
           return (
             <Box
               key={block.id}
               onDragOver={(event) => handleDragOver(event, block.id)}
               onDrop={(event) => handleDrop(event, block.id)}
-              sx={{ position: 'relative' }}
+              sx={{
+                position: 'relative',
+                borderRadius: 1,
+                bgcolor: isSelected ? 'action.selected' : 'transparent',
+              }}
             >
               {showDropIndicator && (
                 <Box
@@ -1017,25 +1127,27 @@ export default function Editor({
                   }}
                 />
               )}
-              <BlockEditor
-                block={{
-                  ...block,
-                  type: isBlockType(block.type) ? block.type : 'paragraph',
-                  text: block.text ?? '',
-                }}
-                listNumber={listNumber}
-                onChange={(patch, meta) => handleBlockChange(block.id, patch, meta)}
-                onKeyDown={(event) => handleBlockKeyDown(event, index, block)}
-                onPaste={(event) => handleBlockPaste(event, block.id)}
-                onFocus={() => handleBlockFocus(block)}
-                onBlur={onBlur}
-                inputRef={setBlockRef(block.id)}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                showPromoteChecklist={block.type === 'checklist' && !block.taskId}
-                onPromoteChecklist={
-                  block.type === 'checklist' && !block.taskId && onPromoteChecklist
-                    ? () => onPromoteChecklist(block.id, block.text ?? '')
+                <BlockEditor
+                  block={{
+                    ...block,
+                    type: isBlockType(block.type) ? block.type : 'paragraph',
+                    text: block.text ?? '',
+                  }}
+                  listNumber={listNumber}
+                  onChange={(patch, meta) => handleBlockChange(block.id, patch, meta)}
+                  onKeyDown={(event) => handleBlockKeyDown(event, index, block)}
+                  onPaste={(event) => handleBlockPaste(event, block.id)}
+                  onFocus={() => handleBlockFocus(block)}
+                  onBlur={onBlur}
+                  inputRef={setBlockRef(block.id)}
+                  onLinkClick={onLinkClick}
+                  onSelectBlock={handleSelectBlock}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  showPromoteChecklist={block.type === 'checklist' && !block.taskId}
+                  onPromoteChecklist={
+                    block.type === 'checklist' && !block.taskId && onPromoteChecklist
+                      ? () => onPromoteChecklist(block.id, block.text ?? '')
                     : undefined
                 }
               />

@@ -20,6 +20,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useDebouncedCallback } from '../app/useDebouncedCallback';
 import { upgradeLegacyLinksInText } from '../app/upgradeLinks';
+import type { ParsedWikilink } from '../app/wikilinks';
 import {
   isExternalLinkTarget,
   parseWikilinks,
@@ -303,7 +304,10 @@ export default function ItemPage() {
       const links = parseWikilinks(block.text ?? '');
       for (const link of links) {
         if (link.kind === 'id' && link.id) {
-          ids.add(link.id);
+          const { title: id } = splitTitleAndAnchor(link.id);
+          if (id) {
+            ids.add(id);
+          }
         }
         if (link.kind === 'title' && link.title) {
           const { title } = splitTitleAndAnchor(link.title);
@@ -341,9 +345,6 @@ export default function ItemPage() {
   const linkTargetsKey = `${linkTargets.ids.join('|')}::${linkTargets.titles.join('|')}`;
 
   React.useEffect(() => {
-    if (!isPreview) {
-      return;
-    }
     let active = true;
 
     const run = async () => {
@@ -380,7 +381,7 @@ export default function ItemPage() {
     return () => {
       active = false;
     };
-  }, [isPreview, linkTargetsKey]);
+  }, [linkTargetsKey]);
 
   const saveDraft = React.useCallback(
     async (changeId: number) => {
@@ -672,6 +673,91 @@ export default function ItemPage() {
     setPendingLinkTitle(title.trim());
   }, []);
 
+  const handleOpenLinkFromEditor = React.useCallback(
+    async (link: ParsedWikilink) => {
+      if (link.kind === 'id' && link.id) {
+        const { title: id, anchor } = splitTitleAndAnchor(link.id);
+        if (!id) {
+          return;
+        }
+        const target = nodesById.get(id);
+        const headingId = findHeadingBlockId(target, anchor);
+        navigate(`/item/${id}`, {
+          state: headingId ? { highlightBlockId: headingId } : undefined,
+        });
+        return;
+      }
+
+      if (link.kind === 'title' && link.title) {
+        const { title, anchor } = splitTitleAndAnchor(link.title);
+        if (!title) {
+          return;
+        }
+        const resolution = await resolveTitleToId(title);
+        if (resolution.status === 'ok') {
+          const target = nodesById.get(resolution.id);
+          const headingId = findHeadingBlockId(target, anchor);
+          navigate(`/item/${resolution.id}`, {
+            state: headingId ? { highlightBlockId: headingId } : undefined,
+          });
+          return;
+        }
+        if (resolution.status === 'ambiguous') {
+          notifier.info('Link ambiguo. Renomeie para abrir o item correto.');
+          return;
+        }
+        handleRequestCreateLink(title);
+        return;
+      }
+
+      if (link.kind === 'target' && link.target) {
+        const rawTarget = link.target.trim();
+        if (!rawTarget) {
+          return;
+        }
+        if (isExternalLinkTarget(rawTarget)) {
+          const href = normalizeExternalTarget(rawTarget);
+          if (href) {
+            window.open(href, '_blank', 'noopener,noreferrer');
+          }
+          return;
+        }
+        if (rawTarget.toLowerCase().startsWith('id:')) {
+          const rawId = rawTarget.slice(3).trim();
+          const { title: id, anchor } = splitTitleAndAnchor(rawId);
+          if (!id) {
+            return;
+          }
+          const target = nodesById.get(id);
+          const headingId = findHeadingBlockId(target, anchor);
+          navigate(`/item/${id}`, {
+            state: headingId ? { highlightBlockId: headingId } : undefined,
+          });
+          return;
+        }
+        const { title, anchor } = splitTitleAndAnchor(rawTarget);
+        if (!title) {
+          return;
+        }
+        const resolution = await resolveTitleToId(title);
+        if (resolution.status === 'ok') {
+          const target = nodesById.get(resolution.id);
+          const headingId = findHeadingBlockId(target, anchor);
+          navigate(`/item/${resolution.id}`, {
+            state: headingId ? { highlightBlockId: headingId } : undefined,
+          });
+          return;
+        }
+        if (resolution.status === 'ambiguous') {
+          notifier.info('Link ambiguo. Renomeie para abrir o item correto.');
+          return;
+        }
+        handleRequestCreateLink(title);
+      }
+    },
+    [handleRequestCreateLink, navigate, nodesById, notifier],
+  );
+
   const renderTextWithLinks = React.useCallback(
     (text: string) => {
       if (!text) {
@@ -691,14 +777,25 @@ export default function ItemPage() {
         }
 
         if (link.kind === 'id' && link.id) {
-          const target = linkItemsById[link.id];
-          const label = target?.title || link.display || link.id;
+          const { title: id, anchor } = splitTitleAndAnchor(link.id);
+          if (!id) {
+            nodes.push(link.raw);
+            lastIndex = link.end;
+            return;
+          }
+          const target = linkItemsById[id];
+          const label = target?.title || link.display || id;
+          const headingId = findHeadingBlockId(target, anchor);
           nodes.push(
             <Link
-              key={`${link.id}-${index}`}
+              key={`${id}-${index}`}
               component="button"
               underline="always"
-              onClick={() => navigate(`/item/${link.id}`)}
+              onClick={() =>
+                navigate(`/item/${id}`, {
+                  state: headingId ? { highlightBlockId: headingId } : undefined,
+                })
+              }
               sx={{ mx: 0.5 }}
             >
               {label}
@@ -1142,6 +1239,7 @@ export default function ItemPage() {
               onBlur={handleCommitTyping}
               focusRequest={focusRequest ?? undefined}
               onFocusBlock={setLastFocusedBlockId}
+              onLinkClick={handleOpenLinkFromEditor}
             />
           )}
         </Stack>

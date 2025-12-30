@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 
+import type { ParsedWikilink } from '../../app/wikilinks';
 import { parseWikilinks } from '../../app/wikilinks';
 import type { Block, BlockType } from '../../data/types';
 
@@ -30,6 +31,8 @@ type BlockEditorProps = {
   onDragEnd?: (event: React.DragEvent, blockId: string) => void;
   onPromoteChecklist?: () => void;
   showPromoteChecklist?: boolean;
+  onLinkClick?: (link: ParsedWikilink) => void;
+  onSelectBlock?: (event: React.MouseEvent, blockId: string) => void;
 };
 
 const BLOCK_TYPES: BlockType[] = [
@@ -50,13 +53,16 @@ const isBlockType = (value: string | undefined): value is BlockType =>
 
 const getBlockText = (block: Block) => block.text ?? '';
 
-const renderLinkDecorations = (text: string) => {
+const renderLinkDecorations = (
+  text: string,
+  onLinkClick?: (link: ParsedWikilink) => void,
+) => {
   if (!text) {
-    return null;
+    return '';
   }
   const links = parseWikilinks(text);
   if (links.length === 0) {
-    return null;
+    return text;
   }
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -64,16 +70,59 @@ const renderLinkDecorations = (text: string) => {
     if (link.start > lastIndex) {
       nodes.push(text.slice(lastIndex, link.start));
     }
+    const rawText = text.slice(link.start, link.end);
+    const closeIndex = rawText.indexOf(']]');
+    const inner = closeIndex === -1 ? rawText : rawText.slice(2, closeIndex);
+    const suffix = closeIndex === -1 ? '' : rawText.slice(closeIndex + 2);
+    let innerPrefix = '';
+    let innerDisplay = inner;
+    if (inner.toLowerCase().startsWith('id:')) {
+      const pipeIndex = inner.indexOf('|');
+      if (pipeIndex !== -1) {
+        innerPrefix = inner.slice(0, pipeIndex + 1);
+        innerDisplay = inner.slice(pipeIndex + 1);
+      }
+    }
     nodes.push(
       <Box
         component="span"
         key={`${link.start}-${index}`}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          if (!onLinkClick) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          onLinkClick(link);
+        }}
         sx={{
-          textDecoration: 'underline',
-          textDecorationColor: 'primary.main',
+          color: onLinkClick ? 'primary.main' : 'inherit',
+          cursor: onLinkClick ? 'pointer' : 'default',
+          pointerEvents: onLinkClick ? 'auto' : 'none',
         }}
       >
-        {text.slice(link.start, link.end)}
+        <Box component="span" sx={{ color: 'text.disabled' }}>
+          {'[['}
+        </Box>
+        {innerPrefix && (
+          <Box component="span" sx={{ color: 'text.disabled' }}>
+            {innerPrefix}
+          </Box>
+        )}
+        <Box
+          component="span"
+          sx={{
+            color: 'primary.main',
+            textDecoration: 'underline',
+            textDecorationColor: 'primary.main',
+          }}
+        >
+          {innerDisplay}
+        </Box>
+        <Box component="span" sx={{ color: 'text.disabled' }}>
+          {`]]${suffix}`}
+        </Box>
       </Box>,
     );
     lastIndex = link.end;
@@ -95,6 +144,7 @@ const BaseTextField = ({
   inputSx,
   onPaste,
   showLinkDecorations = true,
+  onLinkClick,
 }: {
   block: Block;
   onChange: (
@@ -109,6 +159,7 @@ const BaseTextField = ({
   placeholder?: string;
   inputSx?: Record<string, unknown>;
   showLinkDecorations?: boolean;
+  onLinkClick?: (link: ParsedWikilink) => void;
 }) => (
   <Box sx={{ position: 'relative', width: '100%' }}>
     {showLinkDecorations && (
@@ -117,7 +168,7 @@ const BaseTextField = ({
         sx={{
           position: 'absolute',
           inset: 0,
-          color: 'transparent',
+          color: 'text.primary',
           pointerEvents: 'none',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
@@ -127,7 +178,7 @@ const BaseTextField = ({
           ...(inputSx ?? {}),
         }}
       >
-        {renderLinkDecorations(getBlockText(block))}
+        {renderLinkDecorations(getBlockText(block), onLinkClick)}
       </Box>
     )}
     <TextField
@@ -155,6 +206,18 @@ const BaseTextField = ({
           position: 'relative',
           zIndex: 1,
           backgroundColor: 'transparent',
+          ...(showLinkDecorations
+            ? {
+                '& .MuiInputBase-input': {
+                  color: 'transparent',
+                  caretColor: 'text.primary',
+                  '&::placeholder': {
+                    color: 'text.secondary',
+                    opacity: 1,
+                  },
+                },
+              }
+            : {}),
           ...(inputSx ?? {}),
         },
       }}
@@ -175,6 +238,8 @@ export default function BlockEditor({
   onDragEnd,
   onPromoteChecklist,
   showPromoteChecklist,
+  onLinkClick,
+  onSelectBlock,
 }: BlockEditorProps) {
   const type = isBlockType(block.type) ? block.type : 'paragraph';
   const dragHandle = (
@@ -185,6 +250,7 @@ export default function BlockEditor({
       draggable
       tabIndex={-1}
       aria-label="Arrastar bloco"
+      onMouseDown={(event) => onSelectBlock?.(event, block.id)}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', block.id);
@@ -229,15 +295,16 @@ export default function BlockEditor({
         />
         <Box sx={{ flex: 1 }}>
           <BaseTextField
-          block={block}
-          onChange={(value, meta) => onChange({ text: value }, meta)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          onFocus={onFocus}
-          onBlur={onBlur}
-          inputRef={inputRef}
-          placeholder="Checklist..."
-        />
+            block={block}
+            onChange={(value, meta) => onChange({ text: value }, meta)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            inputRef={inputRef}
+            onLinkClick={onLinkClick}
+            placeholder="Checklist..."
+          />
         </Box>
         {showPromoteChecklist && onPromoteChecklist && (
           <Tooltip title="Promover para tarefa">
@@ -266,6 +333,7 @@ export default function BlockEditor({
           onFocus={onFocus}
           onBlur={onBlur}
           inputRef={inputRef}
+          onLinkClick={onLinkClick}
           placeholder="Callout..."
         />
       </Paper>
@@ -310,6 +378,7 @@ export default function BlockEditor({
           onFocus={onFocus}
           onBlur={onBlur}
           inputRef={inputRef}
+          onLinkClick={onLinkClick}
           placeholder="Lista..."
         />
       </Box>
@@ -325,6 +394,7 @@ export default function BlockEditor({
         onFocus={onFocus}
         onBlur={onBlur}
         inputRef={inputRef}
+        onLinkClick={onLinkClick}
         placeholder="Titulo..."
         inputSx={{ fontSize, fontWeight: 600 }}
       />
@@ -339,6 +409,7 @@ export default function BlockEditor({
         onFocus={onFocus}
         onBlur={onBlur}
         inputRef={inputRef}
+        onLinkClick={onLinkClick}
         placeholder="Digite algo..."
       />
     );
@@ -353,7 +424,10 @@ export default function BlockEditor({
         '&:hover .drag-handle': { opacity: 1 },
       }}
     >
-      <Box sx={{ width: 28, display: 'flex', justifyContent: 'center', pt: 0.5 }}>
+      <Box
+        sx={{ width: 28, display: 'flex', justifyContent: 'center', pt: 0.5 }}
+        onMouseDown={(event) => onSelectBlock?.(event, block.id)}
+      >
         {dragHandle}
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>{content}</Box>
