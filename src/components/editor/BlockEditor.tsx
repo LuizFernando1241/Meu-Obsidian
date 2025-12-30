@@ -32,6 +32,11 @@ type BlockEditorProps = {
   onPromoteChecklist?: () => void;
   showPromoteChecklist?: boolean;
   onLinkClick?: (link: ParsedWikilink) => void;
+  onRequestRawEdit?: (
+    blockId: string,
+    selection?: { start: number; end: number },
+  ) => void;
+  isRaw?: boolean;
 };
 
 const BLOCK_TYPES: BlockType[] = [
@@ -54,12 +59,11 @@ const getBlockText = (block: Block) => block.text ?? '';
 
 const renderLinkDecorations = (
   text: string,
-  onLinkClick?: (link: ParsedWikilink) => void,
+  links: ParsedWikilink[],
 ) => {
   if (!text) {
     return '';
   }
-  const links = parseWikilinks(text);
   if (links.length === 0) {
     return text;
   }
@@ -71,57 +75,47 @@ const renderLinkDecorations = (
     }
     const rawText = text.slice(link.start, link.end);
     const closeIndex = rawText.indexOf(']]');
-    const inner = closeIndex === -1 ? rawText : rawText.slice(2, closeIndex);
-    const suffix = closeIndex === -1 ? '' : rawText.slice(closeIndex + 2);
-    let innerPrefix = '';
-    let innerDisplay = inner;
-    if (inner.toLowerCase().startsWith('id:')) {
-      const pipeIndex = inner.indexOf('|');
-      if (pipeIndex !== -1) {
-        innerPrefix = inner.slice(0, pipeIndex + 1);
-        innerDisplay = inner.slice(pipeIndex + 1);
-      }
+    if (closeIndex === -1) {
+      nodes.push(rawText);
+      lastIndex = link.end;
+      return;
     }
+    const prefix = rawText.slice(0, 2);
+    const inner = rawText.slice(2, closeIndex);
+    const pipeIndex = inner.indexOf('|');
+    const innerHidden = pipeIndex === -1 ? '' : inner.slice(0, pipeIndex + 1);
+    const displayText =
+      pipeIndex === -1 ? inner : inner.slice(pipeIndex + 1);
+    const closing = rawText.slice(closeIndex, closeIndex + 2);
+    const suffix = rawText.slice(closeIndex + 2);
     nodes.push(
       <Box
         component="span"
         key={`${link.start}-${index}`}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={(event) => {
-          if (!onLinkClick) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          onLinkClick(link);
-        }}
         sx={{
-          color: onLinkClick ? 'primary.main' : 'inherit',
-          cursor: onLinkClick ? 'pointer' : 'default',
-          pointerEvents: onLinkClick ? 'auto' : 'none',
+          color: 'primary.main',
+          textDecoration: 'underline',
+          textDecorationColor: 'primary.main',
         }}
       >
-        <Box component="span" sx={{ color: 'text.disabled' }}>
-          {'[['}
+        <Box component="span" sx={{ color: 'transparent' }}>
+          {prefix}
         </Box>
-        {innerPrefix && (
-          <Box component="span" sx={{ color: 'text.disabled' }}>
-            {innerPrefix}
+        {innerHidden && (
+          <Box component="span" sx={{ color: 'transparent' }}>
+            {innerHidden}
           </Box>
         )}
-        <Box
-          component="span"
-          sx={{
-            color: 'primary.main',
-            textDecoration: 'underline',
-            textDecorationColor: 'primary.main',
-          }}
-        >
-          {innerDisplay}
+        <Box component="span">{displayText}</Box>
+        <Box component="span" sx={{ color: 'transparent' }}>
+          {closing}
         </Box>
-        <Box component="span" sx={{ color: 'text.disabled' }}>
-          {`]]${suffix}`}
-        </Box>
+        {suffix && (
+          <Box component="span" sx={{ color: 'transparent' }}>
+            {suffix}
+          </Box>
+        )}
       </Box>,
     );
     lastIndex = link.end;
@@ -144,6 +138,8 @@ const BaseTextField = ({
   onPaste,
   showLinkDecorations = true,
   onLinkClick,
+  onRequestRawEdit,
+  isRaw,
 }: {
   block: Block;
   onChange: (
@@ -159,33 +155,41 @@ const BaseTextField = ({
   inputSx?: Record<string, unknown>;
   showLinkDecorations?: boolean;
   onLinkClick?: (link: ParsedWikilink) => void;
-}) => (
-  <Box sx={{ position: 'relative', width: '100%' }}>
-    {showLinkDecorations && (
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          color: 'text.primary',
-          pointerEvents: 'none',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          fontSize: 'inherit',
-          fontFamily: 'inherit',
-          lineHeight: 'inherit',
-          ...(inputSx ?? {}),
-        }}
-      >
-        {renderLinkDecorations(getBlockText(block), onLinkClick)}
-      </Box>
-    )}
-    <TextField
+  onRequestRawEdit?: (selection: { start: number; end: number }) => void;
+  isRaw?: boolean;
+}) => {
+  const text = getBlockText(block);
+  const links = showLinkDecorations && text ? parseWikilinks(text) : [];
+  const hasLinks = links.length > 0;
+  const isDisplayMode = Boolean(showLinkDecorations && !isRaw && hasLinks);
+
+  return (
+    <Box sx={{ position: 'relative', width: '100%' }}>
+      {isDisplayMode && (
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            color: 'text.primary',
+            pointerEvents: 'none',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontSize: 'inherit',
+            fontFamily: 'inherit',
+            lineHeight: 'inherit',
+            ...(inputSx ?? {}),
+          }}
+        >
+          {renderLinkDecorations(text, links)}
+        </Box>
+      )}
+      <TextField
       variant="standard"
       fullWidth
       multiline
       minRows={1}
-      value={getBlockText(block)}
+      value={text}
       onChange={(event) => {
         const target = event.target as HTMLInputElement | HTMLTextAreaElement;
         onChange(event.target.value, {
@@ -194,7 +198,7 @@ const BaseTextField = ({
         });
       }}
       onMouseUp={(event) => {
-        if (!onLinkClick) {
+        if (!isDisplayMode) {
           return;
         }
         const target = event.target as HTMLInputElement | HTMLTextAreaElement;
@@ -203,15 +207,22 @@ const BaseTextField = ({
         if (selectionStart !== selectionEnd) {
           return;
         }
-        const text = getBlockText(block);
         if (!text) {
           return;
         }
-        const links = parseWikilinks(text);
         const match = links.find(
           (link) => selectionStart >= link.start && selectionStart <= link.end,
         );
         if (!match) {
+          return;
+        }
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          onRequestRawEdit?.({ start: selectionStart, end: selectionEnd });
+          return;
+        }
+        if (!onLinkClick) {
           return;
         }
         event.preventDefault();
@@ -230,7 +241,7 @@ const BaseTextField = ({
           position: 'relative',
           zIndex: 1,
           backgroundColor: 'transparent',
-          ...(showLinkDecorations
+          ...(isDisplayMode
             ? {
                 '& .MuiInputBase-input': {
                   color: 'transparent',
@@ -246,8 +257,9 @@ const BaseTextField = ({
         },
       }}
     />
-  </Box>
-);
+    </Box>
+  );
+};
 
 export default function BlockEditor({
   block,
@@ -263,6 +275,8 @@ export default function BlockEditor({
   onPromoteChecklist,
   showPromoteChecklist,
   onLinkClick,
+  onRequestRawEdit,
+  isRaw,
 }: BlockEditorProps) {
   const type = isBlockType(block.type) ? block.type : 'paragraph';
   const dragHandle = (
@@ -325,6 +339,8 @@ export default function BlockEditor({
             onBlur={onBlur}
             inputRef={inputRef}
             onLinkClick={onLinkClick}
+            onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
+            isRaw={isRaw}
             placeholder="Checklist..."
           />
         </Box>
@@ -356,6 +372,8 @@ export default function BlockEditor({
           onBlur={onBlur}
           inputRef={inputRef}
           onLinkClick={onLinkClick}
+          onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
+          isRaw={isRaw}
           placeholder="Callout..."
         />
       </Paper>
@@ -373,6 +391,7 @@ export default function BlockEditor({
           inputRef={inputRef}
           placeholder="Codigo..."
           showLinkDecorations={false}
+          isRaw={isRaw}
           inputSx={{
             fontFamily:
               'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
@@ -401,6 +420,8 @@ export default function BlockEditor({
           onBlur={onBlur}
           inputRef={inputRef}
           onLinkClick={onLinkClick}
+          onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
+          isRaw={isRaw}
           placeholder="Lista..."
         />
       </Box>
@@ -417,6 +438,8 @@ export default function BlockEditor({
         onBlur={onBlur}
         inputRef={inputRef}
         onLinkClick={onLinkClick}
+        onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
+        isRaw={isRaw}
         placeholder="Titulo..."
         inputSx={{ fontSize, fontWeight: 600 }}
       />
@@ -432,6 +455,8 @@ export default function BlockEditor({
         onBlur={onBlur}
         inputRef={inputRef}
         onLinkClick={onLinkClick}
+        onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
+        isRaw={isRaw}
         placeholder="Digite algo..."
       />
     );

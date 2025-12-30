@@ -231,6 +231,7 @@ export default function Editor({
     [selectedBlockIds],
   );
   const isSelectingRef = React.useRef(false);
+  const [rawEditBlockId, setRawEditBlockId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     blocksRef.current = blocks;
@@ -1066,6 +1067,32 @@ export default function Editor({
     [onFocusBlock, updateSlashState, slashState, linkState, selectedBlockIds.length],
   );
 
+  const handleBlockBlur = React.useCallback(
+    (blockId: string) => {
+      if (rawEditBlockId === blockId) {
+        setRawEditBlockId(null);
+      }
+      onBlur?.();
+    },
+    [onBlur, rawEditBlockId],
+  );
+
+  const handleRequestRawEdit = React.useCallback(
+    (blockId: string, selection?: { start: number; end: number }) => {
+      setRawEditBlockId(blockId);
+      if (selection) {
+        setFocusTarget({
+          id: blockId,
+          selectionStart: selection.start,
+          selectionEnd: selection.end,
+        });
+      } else {
+        setFocusTarget({ id: blockId, position: 'end' });
+      }
+    },
+    [],
+  );
+
   const handleSlashSelect = React.useCallback(
     (type: BlockType) => {
       if (!slashState) {
@@ -1218,9 +1245,11 @@ export default function Editor({
                   onKeyDown={(event) => handleBlockKeyDown(event, index, block)}
                   onPaste={(event) => handleBlockPaste(event, block.id)}
                   onFocus={() => handleBlockFocus(block)}
-                  onBlur={onBlur}
+                  onBlur={() => handleBlockBlur(block.id)}
                   inputRef={setBlockRef(block.id)}
                   onLinkClick={onLinkClick}
+                  onRequestRawEdit={handleRequestRawEdit}
+                  isRaw={rawEditBlockId === block.id}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
                   showPromoteChecklist={block.type === 'checklist' && !block.taskId}
