@@ -193,6 +193,31 @@ const BaseTextField = ({
           selectionEnd: target.selectionEnd ?? undefined,
         });
       }}
+      onMouseUp={(event) => {
+        if (!onLinkClick) {
+          return;
+        }
+        const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+        const selectionStart = target.selectionStart ?? 0;
+        const selectionEnd = target.selectionEnd ?? selectionStart;
+        if (selectionStart !== selectionEnd) {
+          return;
+        }
+        const text = getBlockText(block);
+        if (!text) {
+          return;
+        }
+        const links = parseWikilinks(text);
+        const match = links.find(
+          (link) => selectionStart >= link.start && selectionStart <= link.end,
+        );
+        if (!match) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onLinkClick(match);
+      }}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       onFocus={onFocus}

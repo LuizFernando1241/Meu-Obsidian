@@ -21,7 +21,7 @@ export const parseWikilinks = (text: string): ParsedWikilink[] => {
   }
 
   const matches: ParsedWikilink[] = [];
-  const regex = /\[\[([^\]\n]+)\]\](?:\(([^)\n]+)\))?/g;
+  const regex = /\[\[([^\]\n]+)\]\][ \t]*(?:\(([^)\n]+)\))?/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text))) {
     const raw = match[0];
