@@ -89,6 +89,20 @@ export const parseWikilinks = (text: string): ParsedWikilink[] => {
   return matches;
 };
 
+export const splitTitleAndAnchor = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { title: '', anchor: undefined as string | undefined };
+  }
+  const hashIndex = trimmed.indexOf('#');
+  if (hashIndex === -1) {
+    return { title: trimmed, anchor: undefined as string | undefined };
+  }
+  const title = trimmed.slice(0, hashIndex).trim();
+  const anchor = trimmed.slice(hashIndex + 1).trim();
+  return { title, anchor: anchor || undefined };
+};
+
 export const extractLinkTargets = (text: string) => {
   const links = parseWikilinks(text);
   const ids: string[] = [];
@@ -99,7 +113,10 @@ export const extractLinkTargets = (text: string) => {
       ids.push(link.id);
     }
     if (link.kind === 'title' && link.title) {
-      titles.push(link.title);
+      const { title } = splitTitleAndAnchor(link.title);
+      if (title) {
+        titles.push(title);
+      }
     }
     if (link.kind === 'target' && link.target) {
       const normalized = link.target.trim();
@@ -107,7 +124,8 @@ export const extractLinkTargets = (text: string) => {
         continue;
       }
       if (normalized.toLowerCase().startsWith('id:')) {
-        const id = normalized.slice(3).trim();
+        const rawId = normalized.slice(3).trim();
+        const { title: id } = splitTitleAndAnchor(rawId);
         if (id) {
           ids.push(id);
         }
@@ -116,7 +134,10 @@ export const extractLinkTargets = (text: string) => {
       if (isExternalLinkTarget(normalized)) {
         continue;
       }
-      titles.push(normalized);
+      const { title } = splitTitleAndAnchor(normalized);
+      if (title) {
+        titles.push(title);
+      }
     }
   }
 
@@ -149,13 +170,17 @@ export const findWikilinkSnippets = (
   const results: WikilinkSnippet[] = [];
   const links = parseWikilinks(text);
   links.forEach((link) => {
+    const linkTitle =
+      link.kind === 'title' && link.title
+        ? splitTitleAndAnchor(link.title).title.trim().toLowerCase()
+        : undefined;
     const targetTitle =
-      link.kind === 'target' && link.target ? link.target.trim().toLowerCase() : undefined;
+      link.kind === 'target' && link.target
+        ? splitTitleAndAnchor(link.target).title.trim().toLowerCase()
+        : undefined;
     const isMatch =
       (idNeedle && link.kind === 'id' && link.id === idNeedle) ||
-      (titleNeedle &&
-        link.kind === 'title' &&
-        link.title?.trim().toLowerCase() === titleNeedle) ||
+      (titleNeedle && linkTitle && linkTitle === titleNeedle) ||
       (titleNeedle && targetTitle && targetTitle === titleNeedle);
     if (!isMatch) {
       return;

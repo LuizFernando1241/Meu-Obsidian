@@ -27,7 +27,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 
 import LocalGraph from './graph/LocalGraph';
 import PropertiesEditor from './PropertiesEditor';
-import { findWikilinkSnippets, isExternalLinkTarget, parseWikilinks } from '../app/wikilinks';
+import {
+  findWikilinkSnippets,
+  isExternalLinkTarget,
+  parseWikilinks,
+  splitTitleAndAnchor,
+} from '../app/wikilinks';
 import { db } from '../data/db';
 import { filterActiveNodes } from '../data/deleted';
 import { useBacklinks, useItem, useOutgoingLinks } from '../data/hooks';
@@ -152,7 +157,10 @@ export default function RightContextPanel({
         const links = parseWikilinks(block.text ?? '');
         links.forEach((link) => {
           if (link.kind === 'title' && link.title) {
-            titles.add(link.title);
+            const { title } = splitTitleAndAnchor(link.title);
+            if (title) {
+              titles.add(title);
+            }
           }
           if (link.kind === 'target' && link.target) {
             const target = link.target.trim();
@@ -165,7 +173,10 @@ export default function RightContextPanel({
             if (isExternalLinkTarget(target)) {
               return;
             }
-            titles.add(target);
+            const { title } = splitTitleAndAnchor(target);
+            if (title) {
+              titles.add(title);
+            }
           }
         });
       });

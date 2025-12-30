@@ -20,7 +20,11 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useDebouncedCallback } from '../app/useDebouncedCallback';
 import { upgradeLegacyLinksInText } from '../app/upgradeLinks';
-import { isExternalLinkTarget, parseWikilinks } from '../app/wikilinks';
+import {
+  isExternalLinkTarget,
+  parseWikilinks,
+  splitTitleAndAnchor,
+} from '../app/wikilinks';
 import LoadingState from '../components/LoadingState';
 import MoveToDialog from '../components/dialogs/MoveToDialog';
 import RenameDialog from '../components/dialogs/RenameDialog';
@@ -118,6 +122,23 @@ const normalizeExternalTarget = (value: string) => {
     return `https://${trimmed}`;
   }
   return trimmed;
+};
+
+const findHeadingBlockId = (node: DataNode | undefined, anchor?: string) => {
+  if (!node || node.nodeType !== 'note' || !anchor) {
+    return undefined;
+  }
+  const normalized = anchor.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  const content = Array.isArray(node.content) ? node.content : [];
+  const heading = content.find(
+    (block) =>
+      (block.type === 'h1' || block.type === 'h2' || block.type === 'h3') &&
+      (block.text ?? '').trim().toLowerCase() === normalized,
+  );
+  return heading?.id;
 };
 
 const normalizeBlock = (block: Block): Block => {
@@ -285,7 +306,10 @@ export default function ItemPage() {
           ids.add(link.id);
         }
         if (link.kind === 'title' && link.title) {
-          titles.add(link.title);
+          const { title } = splitTitleAndAnchor(link.title);
+          if (title) {
+            titles.add(title);
+          }
         }
         if (link.kind === 'target' && link.target) {
           const target = link.target.trim();
@@ -293,7 +317,8 @@ export default function ItemPage() {
             continue;
           }
           if (target.toLowerCase().startsWith('id:')) {
-            const id = target.slice(3).trim();
+            const rawId = target.slice(3).trim();
+            const { title: id } = splitTitleAndAnchor(rawId);
             if (id) {
               ids.add(id);
             }
@@ -302,7 +327,10 @@ export default function ItemPage() {
           if (isExternalLinkTarget(target)) {
             continue;
           }
-          titles.add(target);
+          const { title } = splitTitleAndAnchor(target);
+          if (title) {
+            titles.add(title);
+          }
         }
       }
     }
@@ -677,16 +705,31 @@ export default function ItemPage() {
             </Link>,
           );
         } else if (link.kind === 'title' && link.title) {
-          const resolution = titleResolutions[link.title];
+          const { title, anchor } = splitTitleAndAnchor(link.title);
+          if (!title) {
+            nodes.push(link.raw);
+            lastIndex = link.end;
+            return;
+          }
+          const resolution = titleResolutions[title];
           if (resolution?.status === 'ok' && resolution.id) {
             const target = linkItemsById[resolution.id];
-            const label = target?.title || link.title;
+            const label = target?.title
+              ? anchor
+                ? `${target.title}#${anchor}`
+                : target.title
+              : link.title;
+            const headingId = findHeadingBlockId(target, anchor);
             nodes.push(
               <Link
                 key={`${link.title}-${index}`}
                 component="button"
                 underline="always"
-                onClick={() => navigate(`/item/${resolution.id}`)}
+                onClick={() =>
+                  navigate(`/item/${resolution.id}`, {
+                    state: headingId ? { highlightBlockId: headingId } : undefined,
+                  })
+                }
                 sx={{ mx: 0.5 }}
               >
                 {label}
@@ -704,7 +747,7 @@ export default function ItemPage() {
               </Box>,
             );
           } else {
-            const linkTitle = link.title;
+            const linkTitle = title;
             if (!linkTitle) {
               nodes.push(link.raw);
             } else {
@@ -716,7 +759,7 @@ export default function ItemPage() {
                   onClick={() => handleRequestCreateLink(linkTitle)}
                   sx={{ mx: 0.5 }}
                 >
-                  {linkTitle}
+                  {anchor ? `${linkTitle}#${anchor}` : linkTitle}
                 </Link>,
               );
             }
@@ -741,18 +784,30 @@ export default function ItemPage() {
               </Link>,
             );
           } else if (targetValue.toLowerCase().startsWith('id:')) {
-            const id = targetValue.slice(3).trim();
+            const rawId = targetValue.slice(3).trim();
+            const { title: id, anchor } = splitTitleAndAnchor(rawId);
             if (!id) {
               nodes.push(link.raw);
             } else {
               const target = linkItemsById[id];
-              const resolvedLabel = target?.title || label || id;
+              const resolvedLabel = link.display
+                ? label
+                : target?.title
+                  ? anchor
+                    ? `${target.title}#${anchor}`
+                    : target.title
+                  : label || id;
+              const headingId = findHeadingBlockId(target, anchor);
               nodes.push(
                 <Link
                   key={`${id}-${index}`}
                   component="button"
                   underline="always"
-                  onClick={() => navigate(`/item/${id}`)}
+                  onClick={() =>
+                    navigate(`/item/${id}`, {
+                      state: headingId ? { highlightBlockId: headingId } : undefined,
+                    })
+                  }
                   sx={{ mx: 0.5 }}
                 >
                   {resolvedLabel}
@@ -760,16 +815,33 @@ export default function ItemPage() {
               );
             }
           } else {
-            const resolution = titleResolutions[targetValue];
+            const { title, anchor } = splitTitleAndAnchor(targetValue);
+            if (!title) {
+              nodes.push(link.raw);
+              lastIndex = link.end;
+              return;
+            }
+            const resolution = titleResolutions[title];
             if (resolution?.status === 'ok' && resolution.id) {
               const target = linkItemsById[resolution.id];
-              const resolvedLabel = target?.title || label;
+              const resolvedLabel = link.display
+                ? label
+                : target?.title
+                  ? anchor
+                    ? `${target.title}#${anchor}`
+                    : target.title
+                  : label;
+              const headingId = findHeadingBlockId(target, anchor);
               nodes.push(
                 <Link
                   key={`${targetValue}-${index}`}
                   component="button"
                   underline="always"
-                  onClick={() => navigate(`/item/${resolution.id}`)}
+                  onClick={() =>
+                    navigate(`/item/${resolution.id}`, {
+                      state: headingId ? { highlightBlockId: headingId } : undefined,
+                    })
+                  }
                   sx={{ mx: 0.5 }}
                 >
                   {resolvedLabel}
@@ -792,7 +864,7 @@ export default function ItemPage() {
                   key={`${targetValue}-${index}`}
                   component="button"
                   underline="always"
-                  onClick={() => handleRequestCreateLink(targetValue)}
+                  onClick={() => handleRequestCreateLink(title)}
                   sx={{ mx: 0.5 }}
                 >
                   {label}

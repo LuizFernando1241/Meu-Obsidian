@@ -781,6 +781,18 @@ export default function Editor({
       if (parsed.length === 0) {
         return;
       }
+
+      const hasNewline = text.includes('\n') || text.includes('\r');
+      if (!hasNewline || parsed.length === 1) {
+        return;
+      }
+
+      const current = blocksRef.current.find((block) => block.id === blockId);
+      const currentType = isBlockType(current?.type) ? current?.type : 'paragraph';
+      if (!current || !isTextualBlock(currentType)) {
+        return;
+      }
+
       event.preventDefault();
       if (slashState) {
         setSlashState(null);
@@ -789,23 +801,68 @@ export default function Editor({
         setLinkState(null);
         setLinkResults([]);
       }
-      let nextFocusId: string | null = null;
+
+      const target = event.target as HTMLTextAreaElement | HTMLInputElement;
+      const selectionStart =
+        'selectionStart' in target && typeof target.selectionStart === 'number'
+          ? target.selectionStart
+          : (current.text ?? '').length;
+      const selectionEnd =
+        'selectionEnd' in target && typeof target.selectionEnd === 'number'
+          ? target.selectionEnd
+          : selectionStart;
+      const currentText = current.text ?? '';
+      const before = currentText.slice(0, selectionStart);
+      const after = currentText.slice(selectionEnd);
+
+      const parsedWithIds = parsed.map((block) => ({ ...block, id: uuidv4() }));
+
+      let nextFocus: FocusTarget | null = null;
       updateBlocks((prev) => {
         const index = prev.findIndex((block) => block.id === blockId);
         if (index === -1) {
           return prev;
         }
-        const current = prev[index];
-        const first = parsed[0];
-        const nextFirst: Block = { ...first, id: current.id };
-        const tail = parsed.slice(1);
-        nextFocusId = tail.length > 0 ? tail[tail.length - 1].id : nextFirst.id;
+
+        const nextBlocks: Block[] = [];
+
+        if (before) {
+          nextBlocks.push({ ...current, text: before });
+        } else {
+          const first = parsedWithIds.shift();
+          if (first) {
+            nextBlocks.push({ ...first, id: current.id });
+          }
+        }
+
+        if (parsedWithIds.length > 0) {
+          nextBlocks.push(...parsedWithIds);
+        }
+
+        let afterBlockId: string | null = null;
+        if (after) {
+          const afterBlock = createBlockWithType(currentType);
+          afterBlock.text = after;
+          afterBlockId = afterBlock.id;
+          nextBlocks.push(afterBlock);
+        }
+
+        if (afterBlockId) {
+          nextFocus = { id: afterBlockId, position: 'start' };
+        } else {
+          const last = nextBlocks[nextBlocks.length - 1];
+          if (last) {
+            nextFocus = { id: last.id, position: 'end' };
+          }
+        }
+
         const next = [...prev];
-        next.splice(index, 1, nextFirst, ...tail);
+        next.splice(index, 1, ...nextBlocks);
         return next;
       }, 'structural');
-      if (nextFocusId) {
-        setFocusTarget({ id: nextFocusId, position: 'end' });
+
+      if (nextFocus) {
+        setFocusTarget(nextFocus);
       }
     },
     [linkState, slashState, updateBlocks],
