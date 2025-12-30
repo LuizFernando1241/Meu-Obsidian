@@ -499,6 +499,10 @@ const normalizeBlock = (block: Partial<Block>): Block => {
     createdAt: typeof block.createdAt === 'number' ? block.createdAt : undefined,
     language: typeof block.language === 'string' ? block.language : undefined,
     taskId: typeof block.taskId === 'string' && block.taskId ? block.taskId : undefined,
+    collapsed:
+      typeof (block as { collapsed?: unknown }).collapsed === 'boolean'
+        ? (block as { collapsed?: boolean }).collapsed
+        : undefined,
     meta,
   };
 };

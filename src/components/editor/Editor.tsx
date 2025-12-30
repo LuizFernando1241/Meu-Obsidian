@@ -69,6 +69,45 @@ const isBlockType = (value: string | undefined): value is BlockType =>
 
 const isTextualBlock = (value: BlockType) => TEXTUAL_BLOCK_TYPES.includes(value);
 
+const getHeadingLevel = (type?: BlockType) =>
+  type === 'h1' ? 1 : type === 'h2' ? 2 : type === 'h3' ? 3 : 0;
+
+const computeHeadingState = (blocks: Block[]) => {
+  const hiddenIds = new Set<string>();
+  const headingHasChildren: Record<string, boolean> = {};
+  const stack: { id: string; level: number; collapsed: boolean }[] = [];
+
+  const markAncestorsWithChildren = () => {
+    stack.forEach((entry) => {
+      headingHasChildren[entry.id] = true;
+    });
+  };
+
+  blocks.forEach((block) => {
+    const level = getHeadingLevel(isBlockType(block.type) ? block.type : undefined);
+    if (level) {
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+        stack.pop();
+      }
+      const isHidden = stack.some((entry) => entry.collapsed);
+      if (isHidden) {
+        hiddenIds.add(block.id);
+      }
+      markAncestorsWithChildren();
+      stack.push({ id: block.id, level, collapsed: Boolean(block.collapsed) });
+      return;
+    }
+
+    const isHidden = stack.some((entry) => entry.collapsed);
+    if (isHidden) {
+      hiddenIds.add(block.id);
+    }
+    markAncestorsWithChildren();
+  });
+
+  return { hiddenIds, headingHasChildren };
+};
+
 type ShortcutMatch = {
   type: BlockType;
   text: string;
@@ -218,6 +257,18 @@ export default function Editor({
     anchorEl: HTMLElement | null;
     query: string;
   } | null>(null);
+
+  const { hiddenIds, headingHasChildren } = React.useMemo(
+    () => computeHeadingState(blocks),
+    [blocks],
+  );
+  const visibleBlocks = React.useMemo(
+    () =>
+      blocks
+        .map((block, index) => ({ block, index }))
+        .filter(({ block }) => !hiddenIds.has(block.id)),
+    [blocks, hiddenIds],
+  );
   const [linkState, setLinkState] = React.useState<LinkState | null>(null);
   const [linkResults, setLinkResults] = React.useState<Node[]>([]);
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
@@ -948,6 +999,26 @@ export default function Editor({
     ],
   );
 
+  const handleToggleCollapse = React.useCallback(
+    (blockId: string) => {
+      updateBlocks(
+        (prev) =>
+          prev.map((block) => {
+            if (block.id !== blockId) {
+              return block;
+            }
+            const type = isBlockType(block.type) ? block.type : 'paragraph';
+            if (getHeadingLevel(type) === 0) {
+              return block;
+            }
+            return { ...block, collapsed: !block.collapsed };
+          }),
+        'structural',
+      );
+    },
+    [updateBlocks],
+  );
+
   const handleBlockPaste = React.useCallback(
     (event: React.ClipboardEvent, blockId: string) => {
       const text = event.clipboardData?.getData('text/plain') ?? '';
@@ -1192,48 +1263,49 @@ export default function Editor({
       <Stack spacing={2} ref={containerRef}>
         {(() => {
           let numberedCounter = 0;
-          return blocks.map((block, index) => {
-          const showDropIndicator =
-            Boolean(draggingId && overId === block.id && dropPosition);
-          const indicatorPosition = dropPosition === 'above' ? 'top' : 'bottom';
-          const blockType = isBlockType(block.type) ? block.type : 'paragraph';
-          if (blockType === 'numbered') {
-            numberedCounter += 1;
-          } else {
-            numberedCounter = 0;
-          }
-          const listNumber = blockType === 'numbered' ? numberedCounter : undefined;
-          const isSelected = selectedIdSet.has(block.id);
+          return visibleBlocks.map(({ block, index }) => {
+            const showDropIndicator =
+              Boolean(draggingId && overId === block.id && dropPosition);
+            const indicatorPosition = dropPosition === 'above' ? 'top' : 'bottom';
+            const blockType = isBlockType(block.type) ? block.type : 'paragraph';
+            if (blockType === 'numbered') {
+              numberedCounter += 1;
+            } else {
+              numberedCounter = 0;
+            }
+            const listNumber = blockType === 'numbered' ? numberedCounter : undefined;
+            const isSelected = selectedIdSet.has(block.id);
+            const hasChildren = Boolean(headingHasChildren[block.id]);
 
-          return (
-            <Box
-              key={block.id}
-              onDragOver={(event) => handleDragOver(event, block.id)}
-              onDrop={(event) => handleDrop(event, block.id)}
-              onMouseDown={(event) => handleSelectionStart(event, block.id)}
-              data-block-id={block.id}
-              sx={{
-                position: 'relative',
-                borderRadius: 1,
-                bgcolor: isSelected ? 'action.selected' : 'transparent',
-                outline: isSelected ? '2px solid' : 'none',
-                outlineColor: isSelected ? 'primary.main' : 'transparent',
-                outlineOffset: 2,
-              }}
-            >
-              {showDropIndicator && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    height: 2,
-                    bgcolor: 'primary.main',
-                    borderRadius: 1,
-                    [indicatorPosition]: -1,
-                  }}
-                />
-              )}
+            return (
+              <Box
+                key={block.id}
+                onDragOver={(event) => handleDragOver(event, block.id)}
+                onDrop={(event) => handleDrop(event, block.id)}
+                onMouseDown={(event) => handleSelectionStart(event, block.id)}
+                data-block-id={block.id}
+                sx={{
+                  position: 'relative',
+                  borderRadius: 1,
+                  bgcolor: isSelected ? 'action.selected' : 'transparent',
+                  outline: isSelected ? '2px solid' : 'none',
+                  outlineColor: isSelected ? 'primary.main' : 'transparent',
+                  outlineOffset: 2,
+                }}
+              >
+                {showDropIndicator && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      height: 2,
+                      bgcolor: 'primary.main',
+                      borderRadius: 1,
+                      [indicatorPosition]: -1,
+                    }}
+                  />
+                )}
                 <BlockEditor
                   block={{
                     ...block,
@@ -1256,11 +1328,16 @@ export default function Editor({
                   onPromoteChecklist={
                     block.type === 'checklist' && !block.taskId && onPromoteChecklist
                       ? () => onPromoteChecklist(block.id, block.text ?? '')
-                    : undefined
-                }
-              />
-            </Box>
-          );
+                      : undefined
+                  }
+                  onToggleCollapse={
+                    hasChildren ? () => handleToggleCollapse(block.id) : undefined
+                  }
+                  isCollapsed={Boolean(block.collapsed)}
+                  hasChildren={hasChildren}
+                />
+              </Box>
+            );
           });
         })()}
       </Stack>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { DragIndicator, PlaylistAdd } from '@mui/icons-material';
+import { DragIndicator, ExpandMore, PlaylistAdd } from '@mui/icons-material';
 import {
   Box,
   Checkbox,
@@ -37,6 +37,9 @@ type BlockEditorProps = {
     selection?: { start: number; end: number },
   ) => void;
   isRaw?: boolean;
+  onToggleCollapse?: () => void;
+  isCollapsed?: boolean;
+  hasChildren?: boolean;
 };
 
 const BLOCK_TYPES: BlockType[] = [
@@ -259,6 +262,9 @@ export default function BlockEditor({
   onLinkClick,
   onRequestRawEdit,
   isRaw,
+  onToggleCollapse,
+  isCollapsed,
+  hasChildren,
 }: BlockEditorProps) {
   const type = isBlockType(block.type) ? block.type : 'paragraph';
   const dragHandle = (
@@ -410,21 +416,43 @@ export default function BlockEditor({
     );
   } else if (type === 'h1' || type === 'h2' || type === 'h3') {
     const fontSize = type === 'h1' ? '2rem' : type === 'h2' ? '1.6rem' : '1.3rem';
+    const showCollapseToggle = Boolean(onToggleCollapse && hasChildren);
     content = (
-      <BaseTextField
-        block={block}
-        onChange={(value, meta) => onChange({ text: value }, meta)}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        inputRef={inputRef}
-        onLinkClick={onLinkClick}
-        onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
-        isRaw={isRaw}
-        placeholder="Titulo..."
-        inputSx={{ fontSize, fontWeight: 600 }}
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        {showCollapseToggle && (
+          <IconButton
+            size="small"
+            aria-label={isCollapsed ? 'Expandir seção' : 'Recolher seção'}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleCollapse?.();
+            }}
+            sx={{
+              transition: 'transform 0.15s ease',
+              transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+            }}
+          >
+            <ExpandMore fontSize="small" />
+          </IconButton>
+        )}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <BaseTextField
+            block={block}
+            onChange={(value, meta) => onChange({ text: value }, meta)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            inputRef={inputRef}
+            onLinkClick={onLinkClick}
+            onRequestRawEdit={(selection) => onRequestRawEdit?.(block.id, selection)}
+            isRaw={isRaw}
+            placeholder="Titulo..."
+            inputSx={{ fontSize, fontWeight: 600 }}
+          />
+        </Box>
+      </Box>
     );
   } else {
     content = (

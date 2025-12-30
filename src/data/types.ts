@@ -53,6 +53,7 @@ export type Block = {
   createdAt?: number;
   language?: string;
   taskId?: string;
+  collapsed?: boolean;
   meta?: {
     priority?: 'P1' | 'P2' | 'P3';
     status?: 'open' | 'doing' | 'waiting';

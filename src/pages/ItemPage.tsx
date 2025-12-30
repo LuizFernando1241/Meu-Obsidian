@@ -1,5 +1,5 @@
 import React from 'react';
-import { Edit, Visibility } from '@mui/icons-material';
+import { Edit, ExpandMore, Visibility } from '@mui/icons-material';
 import {
   Breadcrumbs,
   Box,
@@ -73,6 +73,45 @@ const BLOCK_TYPES: BlockType[] = [
 
 const isBlockType = (value: string | undefined): value is BlockType =>
   !!value && BLOCK_TYPES.includes(value as BlockType);
+
+const getHeadingLevel = (type?: BlockType) =>
+  type === 'h1' ? 1 : type === 'h2' ? 2 : type === 'h3' ? 3 : 0;
+
+const computeHeadingState = (blocks: Block[]) => {
+  const hiddenIds = new Set<string>();
+  const headingHasChildren: Record<string, boolean> = {};
+  const stack: { id: string; level: number; collapsed: boolean }[] = [];
+
+  const markAncestorsWithChildren = () => {
+    stack.forEach((entry) => {
+      headingHasChildren[entry.id] = true;
+    });
+  };
+
+  blocks.forEach((block) => {
+    const level = getHeadingLevel(isBlockType(block.type) ? block.type : undefined);
+    if (level) {
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+        stack.pop();
+      }
+      const isHidden = stack.some((entry) => entry.collapsed);
+      if (isHidden) {
+        hiddenIds.add(block.id);
+      }
+      markAncestorsWithChildren();
+      stack.push({ id: block.id, level, collapsed: Boolean(block.collapsed) });
+      return;
+    }
+
+    const isHidden = stack.some((entry) => entry.collapsed);
+    if (isHidden) {
+      hiddenIds.add(block.id);
+    }
+    markAncestorsWithChildren();
+  });
+
+  return { hiddenIds, headingHasChildren };
+};
 
 const normalizeTaskMeta = (
   value: Block['meta'] | undefined,
@@ -148,6 +187,10 @@ const normalizeBlock = (block: Block): Block => {
     ...block,
     type,
     text: block.text ?? '',
+    collapsed:
+      typeof (block as { collapsed?: unknown }).collapsed === 'boolean'
+        ? (block as { collapsed?: boolean }).collapsed
+        : undefined,
   };
 
   if (type === 'divider') {
@@ -207,6 +250,7 @@ const areBlocksEqual = (left: Block[], right: Block[]) => {
         (a.checked ?? false) !== (b.checked ?? false) ||
         (a.language ?? '') !== (b.language ?? '') ||
         (a.taskId ?? '') !== (b.taskId ?? '') ||
+        (a.collapsed ?? false) !== (b.collapsed ?? false) ||
         (a.meta?.priority ?? '') !== (b.meta?.priority ?? '') ||
         (a.meta?.status ?? '') !== (b.meta?.status ?? '') ||
         (a.meta?.recurrence ?? '') !== (b.meta?.recurrence ?? '')
@@ -257,6 +301,15 @@ export default function ItemPage() {
   const presentTitle = present.title;
   const presentBlocks = present.blocks;
   const [isPreview, setIsPreview] = React.useState(false);
+  const { hiddenIds: previewHiddenIds, headingHasChildren: previewHeadingHasChildren } =
+    React.useMemo(() => computeHeadingState(presentBlocks), [presentBlocks]);
+  const visiblePreviewBlocks = React.useMemo(
+    () =>
+      presentBlocks
+        .map((block, index) => ({ block, index }))
+        .filter(({ block }) => !previewHiddenIds.has(block.id)),
+    [presentBlocks, previewHiddenIds],
+  );
   const [linkItemsById, setLinkItemsById] = React.useState<Record<string, DataNode>>({});
   const [titleResolutions, setTitleResolutions] = React.useState<
     Record<string, { status: 'ok' | 'ambiguous' | 'not_found'; id?: string }>
@@ -560,6 +613,28 @@ export default function ItemPage() {
   const handleBlocksChangeStructural = React.useCallback(
     (nextBlocks: Block[]) => {
       setPresent({ title: draftTitleRef.current, blocks: nextBlocks }, 'structural');
+    },
+    [setPresent],
+  );
+
+  const handleToggleHeadingCollapse = React.useCallback(
+    (blockId: string) => {
+      setPresent(
+        {
+          title: draftTitleRef.current,
+          blocks: blocksRef.current.map((block) => {
+            if (block.id !== blockId) {
+              return block;
+            }
+            const type = isBlockType(block.type) ? block.type : 'paragraph';
+            if (getHeadingLevel(type) === 0) {
+              return block;
+            }
+            return { ...block, collapsed: !block.collapsed };
+          }),
+        },
+        'structural',
+      );
     },
     [setPresent],
   );
@@ -986,7 +1061,7 @@ export default function ItemPage() {
   );
 
   const renderBlockPreview = React.useCallback(
-    (block: Block, index: number) => {
+    (block: Block, listNumber?: number) => {
       const type = isBlockType(block.type) ? block.type : 'paragraph';
       const text = block.text ?? '';
       const content = renderTextWithLinks(text);
@@ -1035,7 +1110,7 @@ export default function ItemPage() {
         return (
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <Typography component="span" sx={{ color: 'text.secondary' }}>
-              {type === 'bullet' ? '*' : `${index + 1}.`}
+              {type === 'bullet' ? '*' : `${listNumber ?? 1}.`}
             </Typography>
             <Typography variant="body1">{content}</Typography>
           </Stack>
@@ -1044,16 +1119,32 @@ export default function ItemPage() {
 
       if (type === 'h1' || type === 'h2' || type === 'h3') {
         const variant = type === 'h1' ? 'h4' : type === 'h2' ? 'h5' : 'h6';
+        const hasChildren = Boolean(previewHeadingHasChildren[block.id]);
         return (
-          <Typography variant={variant} sx={{ fontWeight: 600 }}>
-            {content}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {hasChildren && (
+              <IconButton
+                size="small"
+                aria-label={block.collapsed ? 'Expandir seção' : 'Recolher seção'}
+                onClick={() => handleToggleHeadingCollapse(block.id)}
+                sx={{
+                  transition: 'transform 0.15s ease',
+                  transform: block.collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                }}
+              >
+                <ExpandMore fontSize="small" />
+              </IconButton>
+            )}
+            <Typography variant={variant} sx={{ fontWeight: 600 }}>
+              {content}
+            </Typography>
+          </Box>
         );
       }
 
       return <Typography variant="body1">{content}</Typography>;
     },
-    [renderTextWithLinks],
+    [handleToggleHeadingCollapse, previewHeadingHasChildren, renderTextWithLinks],
   );
 
   const handleConfirmRename = async (value: string) => {
@@ -1227,9 +1318,21 @@ export default function ItemPage() {
         <Stack spacing={2}>
           {isPreview ? (
             <Stack spacing={2}>
-              {presentBlocks.map((block, index) => (
-                <Box key={block.id}>{renderBlockPreview(block, index)}</Box>
-              ))}
+              {(() => {
+                let numberedCounter = 0;
+                return visiblePreviewBlocks.map(({ block }) => {
+                  const type = isBlockType(block.type) ? block.type : 'paragraph';
+                  if (type === 'numbered') {
+                    numberedCounter += 1;
+                  } else {
+                    numberedCounter = 0;
+                  }
+                  const listNumber = type === 'numbered' ? numberedCounter : undefined;
+                  return (
+                    <Box key={block.id}>{renderBlockPreview(block, listNumber)}</Box>
+                  );
+                });
+              })()}
             </Stack>
           ) : (
             <Editor
