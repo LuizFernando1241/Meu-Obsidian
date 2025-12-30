@@ -230,6 +230,7 @@ export default function Editor({
     () => new Set(selectedBlockIds),
     [selectedBlockIds],
   );
+  const isSelectingRef = React.useRef(false);
 
   React.useEffect(() => {
     blocksRef.current = blocks;
@@ -249,6 +250,28 @@ export default function Editor({
     },
     [onBlocksChangeStructural, onBlocksChangeTyping],
   );
+
+  const getBlockIdFromPoint = React.useCallback((x: number, y: number) => {
+    const element = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!element) {
+      return null;
+    }
+    const blockElement = element.closest('[data-block-id]') as HTMLElement | null;
+    return blockElement?.dataset.blockId ?? null;
+  }, []);
+
+  const updateSelectionRange = React.useCallback((anchorId: string, currentId: string) => {
+    const blocksSnapshot = blocksRef.current;
+    const anchorIndex = blocksSnapshot.findIndex((block) => block.id === anchorId);
+    const currentIndex = blocksSnapshot.findIndex((block) => block.id === currentId);
+    if (anchorIndex === -1 || currentIndex === -1) {
+      return;
+    }
+    const from = Math.min(anchorIndex, currentIndex);
+    const to = Math.max(anchorIndex, currentIndex);
+    const rangeIds = blocksSnapshot.slice(from, to + 1).map((block) => block.id);
+    setSelectedBlockIds(rangeIds);
+  }, []);
 
   React.useEffect(() => {
     setSelectedBlockIds((prev) => prev.filter((id) => blocksRef.current.some((b) => b.id === id)));
@@ -470,8 +493,13 @@ export default function Editor({
         const anchorIndex = blocksSnapshot.findIndex(
           (block) => block.id === selectionAnchorRef.current,
         );
-        const from = anchorIndex === -1 ? blockIndex : Math.min(anchorIndex, blockIndex);
-        const to = anchorIndex === -1 ? blockIndex : Math.max(anchorIndex, blockIndex);
+        if (anchorIndex === -1) {
+          setSelectedBlockIds([blockId]);
+          selectionAnchorRef.current = blockId;
+          return;
+        }
+        const from = Math.min(anchorIndex, blockIndex);
+        const to = Math.max(anchorIndex, blockIndex);
         const rangeIds = blocksSnapshot.slice(from, to + 1).map((block) => block.id);
         setSelectedBlockIds(rangeIds);
         return;
@@ -497,6 +525,53 @@ export default function Editor({
       selectionAnchorRef.current = blockId;
     },
     [],
+  );
+
+  const handleSelectionStart = React.useCallback(
+    (event: React.MouseEvent, blockId: string) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        target.closest(
+          'textarea, input, button, [contenteditable="true"], .drag-handle',
+        )
+      ) {
+        return;
+      }
+      if (event.shiftKey || event.metaKey || event.ctrlKey) {
+        handleSelectBlock(event, blockId);
+        return;
+      }
+
+      event.preventDefault();
+      isSelectingRef.current = true;
+      selectionAnchorRef.current = blockId;
+      updateSelectionRange(blockId, blockId);
+
+      const handleMove = (moveEvent: MouseEvent) => {
+        if (!isSelectingRef.current) {
+          return;
+        }
+        const hoverId = getBlockIdFromPoint(moveEvent.clientX, moveEvent.clientY);
+        if (!hoverId) {
+          return;
+        }
+        updateSelectionRange(selectionAnchorRef.current ?? blockId, hoverId);
+      };
+
+      const handleUp = () => {
+        isSelectingRef.current = false;
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleUp);
+      };
+
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+    },
+    [getBlockIdFromPoint, handleSelectBlock, updateSelectionRange],
   );
 
   const updateSlashState = React.useCallback(
@@ -1108,10 +1183,15 @@ export default function Editor({
               key={block.id}
               onDragOver={(event) => handleDragOver(event, block.id)}
               onDrop={(event) => handleDrop(event, block.id)}
+              onMouseDown={(event) => handleSelectionStart(event, block.id)}
+              data-block-id={block.id}
               sx={{
                 position: 'relative',
                 borderRadius: 1,
                 bgcolor: isSelected ? 'action.selected' : 'transparent',
+                outline: isSelected ? '2px solid' : 'none',
+                outlineColor: isSelected ? 'primary.main' : 'transparent',
+                outlineOffset: 2,
               }}
             >
               {showDropIndicator && (
@@ -1141,7 +1221,6 @@ export default function Editor({
                   onBlur={onBlur}
                   inputRef={setBlockRef(block.id)}
                   onLinkClick={onLinkClick}
-                  onSelectBlock={handleSelectBlock}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
                   showPromoteChecklist={block.type === 'checklist' && !block.taskId}

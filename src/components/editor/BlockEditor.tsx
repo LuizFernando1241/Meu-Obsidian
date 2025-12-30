@@ -32,7 +32,6 @@ type BlockEditorProps = {
   onPromoteChecklist?: () => void;
   showPromoteChecklist?: boolean;
   onLinkClick?: (link: ParsedWikilink) => void;
-  onSelectBlock?: (event: React.MouseEvent, blockId: string) => void;
 };
 
 const BLOCK_TYPES: BlockType[] = [
@@ -239,7 +238,6 @@ export default function BlockEditor({
   onPromoteChecklist,
   showPromoteChecklist,
   onLinkClick,
-  onSelectBlock,
 }: BlockEditorProps) {
   const type = isBlockType(block.type) ? block.type : 'paragraph';
   const dragHandle = (
@@ -250,7 +248,6 @@ export default function BlockEditor({
       draggable
       tabIndex={-1}
       aria-label="Arrastar bloco"
-      onMouseDown={(event) => onSelectBlock?.(event, block.id)}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', block.id);
@@ -424,10 +421,7 @@ export default function BlockEditor({
         '&:hover .drag-handle': { opacity: 1 },
       }}
     >
-      <Box
-        sx={{ width: 28, display: 'flex', justifyContent: 'center', pt: 0.5 }}
-        onMouseDown={(event) => onSelectBlock?.(event, block.id)}
-      >
+      <Box sx={{ width: 28, display: 'flex', justifyContent: 'center', pt: 0.5 }}>
         {dragHandle}
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>{content}</Box>
