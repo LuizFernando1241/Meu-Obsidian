@@ -1,4 +1,13 @@
-import { Box, ListItemText, Menu, MenuItem, Typography } from '@mui/material';
+import {
+  Box,
+  ClickAwayListener,
+  ListItemText,
+  MenuItem,
+  MenuList,
+  Paper,
+  Popper,
+  Typography,
+} from '@mui/material';
 
 import type { BlockType } from '../../data/types';
 
@@ -105,34 +114,35 @@ export default function SlashMenu({
   const options = OPTIONS.filter((option) => matchesQuery(option, trimmedQuery));
 
   return (
-    <Menu
-      open={open}
-      anchorEl={anchorEl}
-      onClose={onClose}
-      disableAutoFocusItem
-      disableAutoFocus
-      disableEnforceFocus
-      disableRestoreFocus
-      MenuListProps={{ dense: true, autoFocusItem: false }}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-    >
-      {options.length === 0 ? (
-        <MenuItem disabled>
-          <ListItemText primary="Sem resultados" />
-        </MenuItem>
-      ) : (
-        options.map((option) => (
-          <MenuItem key={option.type} onClick={() => onSelect(option.type)}>
-            <ListItemText primary={option.label} />
-            <Box sx={{ pl: 2 }}>
-              <Typography variant="caption" color="text.secondary">
-                {option.shortcut}
-              </Typography>
-            </Box>
-          </MenuItem>
-        ))
-      )}
-    </Menu>
+    <Popper open={open} anchorEl={anchorEl} placement="bottom-start" disablePortal>
+      <ClickAwayListener onClickAway={onClose}>
+        <Paper
+          elevation={6}
+          sx={{ minWidth: 220, maxWidth: 320 }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+        >
+          <MenuList dense>
+            {options.length === 0 ? (
+              <MenuItem disabled>
+                <ListItemText primary="Sem resultados" />
+              </MenuItem>
+            ) : (
+              options.map((option) => (
+                <MenuItem key={option.type} onClick={() => onSelect(option.type)}>
+                  <ListItemText primary={option.label} />
+                  <Box sx={{ pl: 2 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {option.shortcut}
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              ))
+            )}
+          </MenuList>
+        </Paper>
+      </ClickAwayListener>
+    </Popper>
   );
 }
