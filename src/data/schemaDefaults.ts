@@ -19,7 +19,7 @@ const DEFAULT_PROPERTIES: PropertyDef[] = [
   },
   {
     key: 'due',
-    name: 'Vencimento',
+    name: 'Prazo',
     type: 'date',
   },
   {

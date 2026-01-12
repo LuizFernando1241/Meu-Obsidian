@@ -6,13 +6,15 @@ import { useTheme } from '@mui/material/styles';
 import { Outlet, useMatch, useNavigate } from 'react-router-dom';
 import { Add, CreateNewFolder, EditNote } from '@mui/icons-material';
 
-import LeftNav from './LeftNav';
+import LeftNav from './shell/LeftNav';
 import SearchDialog from './SearchDialog';
 import CommandPalette from './CommandPalette';
-import RightContextPanel from './RightContextPanel';
-import TopBar from './TopBar';
+import RightContextPanel from './shell/ContextPanel';
+import TopBar from './shell/Topbar';
 import CaptureDialog from './dialogs/CaptureDialog';
 import { useDataStore } from '../store/useDataStore';
+import { useSpaceStore } from '../store/useSpaceStore';
+import { useTaskSelection } from '../store/useTaskSelection';
 import { executeCommand } from '../command/execute';
 import { useNotifier } from './Notifier';
 import { appendNoteBlock, createNote, getByTitleExact, setLocalChangeHandler } from '../data/repo';
@@ -21,9 +23,11 @@ import type { Block, NodeType } from '../data/types';
 import { getStoredSyncSettings } from '../sync/syncState';
 import { initAutoSync, markDirty, scheduleSyncSoon } from '../sync/syncService';
 import { getTodayISO } from '../tasks/date';
+import { maybeRebuildTaskIndex } from '../tasks/taskIndexRebuild';
 import { useIsMobile } from '../app/useIsMobile';
 import { runAutoBackupIfDue } from '../data/autoBackup';
 import { GIT_SHA } from '../app/buildInfo';
+import type { SearchHit } from '../search/useSearch';
 
 const DRAWER_WIDTH = 280;
 const COLLAPSED_WIDTH = 72;
@@ -37,6 +41,11 @@ export default function AppShell() {
   const { init: initData, createQuick } = useDataStore((state) => ({
     init: state.init,
     createQuick: state.createQuick,
+  }));
+  const space = useSpaceStore((state) => state.space);
+  const { selectedTask, setSelectedTask } = useTaskSelection((state) => ({
+    selectedTask: state.selectedTask,
+    setSelectedTask: state.setSelectedTask,
   }));
   const itemMatch = useMatch('/item/:id');
   const currentItemId = itemMatch?.params?.id ?? '';
@@ -86,8 +95,42 @@ export default function AppShell() {
   }, []);
 
   React.useEffect(() => {
-    void initData();
-  }, [initData]);
+    let active = true;
+    const run = async () => {
+      try {
+        await initData();
+        if (!active) {
+          return;
+        }
+        let lastNotified = 0;
+        const didRun = await maybeRebuildTaskIndex({
+          onProgress: ({ processedCount, totalCount }) => {
+            if (!active || totalCount === 0) {
+              return;
+            }
+            const progress = processedCount / totalCount;
+            if (progress - lastNotified >= 0.25 || progress >= 1) {
+              lastNotified = progress;
+              notifier.info(`Reindexando tarefas... ${Math.round(progress * 100)}%`);
+            }
+          },
+        });
+        if (didRun && active) {
+          notifier.success('Indice de tarefas atualizado');
+        }
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao reindexar tarefas: ${message}`);
+      }
+    };
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [initData, notifier]);
 
   React.useEffect(() => {
     initAutoSync(() => getStoredSyncSettings());
@@ -202,17 +245,33 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [createQuick, navigate, notifier, openCapture, openSearch, togglePalette, toggleSearch]);
 
-  const handleSelectSearchResult = (id: string) => {
+  const handleSelectSearchResult = (hit: SearchHit) => {
     setSearchOpen(false);
-    navigate(`/item/${id}`);
+    if (hit.kind === 'task') {
+      setSelectedTask(hit.task);
+      setRightOpen(true);
+      navigate(`/item/${hit.task.noteId}`, {
+        state: { highlightBlockId: hit.task.blockId },
+      });
+      return;
+    }
+    navigate(`/item/${hit.id}`);
   };
 
   const handleExecuteCommand = async (
     command: Parameters<typeof executeCommand>[0],
     rawInput: string,
   ) => {
-    await executeCommand(command, navigate, rawInput, { currentItem });
-    setPaletteOpen(false);
+    try {
+      if (command.kind === 'open-task') {
+        setRightOpen(true);
+      }
+      await executeCommand(command, navigate, rawInput, { currentItem, selectedTask, space });
+      setPaletteOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(message);
+    }
   };
 
   const handleCreate = React.useCallback(

@@ -36,11 +36,12 @@ import {
   toggleChecklist,
   updateItemProps,
 } from '../data/repo';
-import type { Node, NoteNode } from '../data/types';
-import { buildTaskIndex, type IndexedTask } from '../tasks/taskIndex';
+import type { Node, NoteNode, PropertySchema, TaskIndexRow } from '../data/types';
+import type { IndexedTask } from '../tasks/taskIndex';
 import { getTodayISO, toISODate } from '../tasks/date';
-import { getTaskNotePath } from '../tasks/taskPath';
+import { mapTaskIndexRow } from '../tasks/taskIndexView';
 import { buildPathCache } from '../vault/pathCache';
+import { useSpaceStore } from '../store/useSpaceStore';
 
 const STALE_NOTE_DAYS = 14;
 const STALE_FOLDER_DAYS = 30;
@@ -80,6 +81,7 @@ const Section = ({
 export default function ReviewPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
+  const space = useSpaceStore((state) => state.space);
   const allItems = useLiveQuery(() => db.items.toArray(), []) ?? [];
   const items = React.useMemo(() => filterActiveNodes(allItems), [allItems]);
   const pathCache = React.useMemo(() => buildPathCache(items), [items]);
@@ -91,42 +93,82 @@ export default function ReviewPage() {
     () => new Map(notes.map((note) => [note.id, note])),
     [notes],
   );
+  const schemas = useLiveQuery(() => db.schemas.toArray(), []) ?? [];
+  const schemasById = React.useMemo(
+    () => new Map(schemas.map((schema) => [schema.id, schema])),
+    [schemas],
+  );
+  const tasksIndex =
+    useLiveQuery(
+      () => db.tasks_index.where('space').equals(space).toArray(),
+      [space],
+    ) ?? [];
 
   const [moveTarget, setMoveTarget] = React.useState<Node | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<Node | null>(null);
 
   const todayISO = getTodayISO();
-  const tasks = React.useMemo(
-    () =>
-      buildTaskIndex(notes, todayISO).map((task) => ({
-        ...task,
-        notePath: getTaskNotePath(pathCache.get(task.noteId)),
-      })),
-    [notes, pathCache, todayISO],
+  const openRows = React.useMemo(
+    () => tasksIndex.filter((row) => row.status !== 'DONE'),
+    [tasksIndex],
   );
-  const openTasks = React.useMemo(() => tasks.filter((task) => !task.checked), [tasks]);
+  const openTasks = React.useMemo(
+    () =>
+      openRows.map((row) =>
+        mapTaskIndexRow(
+          row,
+          notesById.get(row.noteId),
+          pathCache.get(row.noteId),
+          todayISO,
+        ),
+      ),
+    [notesById, openRows, pathCache, todayISO],
+  );
   const upcomingISO = toISODate(addDays(new Date(), UPCOMING_DAYS));
 
   const overdueTasks = React.useMemo(
     () =>
-      openTasks.filter(
-        (task) => task.effectiveDue && task.effectiveDue < todayISO,
-      ),
-    [openTasks, todayISO],
+      openRows
+        .filter((row) => row.dueDay && row.dueDay < todayISO)
+        .map((row) =>
+          mapTaskIndexRow(
+            row,
+            notesById.get(row.noteId),
+            pathCache.get(row.noteId),
+            todayISO,
+          ),
+        ),
+    [notesById, openRows, pathCache, todayISO],
   );
   const noDueTasks = React.useMemo(
-    () => openTasks.filter((task) => !task.effectiveDue),
-    [openTasks],
+    () =>
+      openRows
+        .filter((row) => !row.dueDay)
+        .map((row) =>
+          mapTaskIndexRow(
+            row,
+            notesById.get(row.noteId),
+            pathCache.get(row.noteId),
+            todayISO,
+          ),
+        ),
+    [notesById, openRows, pathCache, todayISO],
   );
   const upcomingTasks = React.useMemo(
     () =>
-      openTasks.filter(
-        (task) =>
-          task.effectiveDue &&
-          task.effectiveDue >= todayISO &&
-          task.effectiveDue <= upcomingISO,
-      ),
-    [openTasks, todayISO, upcomingISO],
+      openRows
+        .filter(
+          (row) => row.dueDay && row.dueDay >= todayISO && row.dueDay <= upcomingISO,
+        )
+        .map((row) =>
+          mapTaskIndexRow(
+            row,
+            notesById.get(row.noteId),
+            pathCache.get(row.noteId),
+            todayISO,
+          ),
+        ),
+    [notesById, openRows, pathCache, todayISO, upcomingISO],
   );
 
   const staleNotes = React.useMemo(() => {
@@ -143,6 +185,69 @@ export default function ReviewPage() {
     () => items.filter((item) => item.favorite),
     [items],
   );
+
+  const getSchemaIdFromProps = (props?: Record<string, unknown>) => {
+    const raw = typeof props?.schemaId === 'string' ? props.schemaId.trim() : '';
+    return raw ? raw : undefined;
+  };
+
+  const isProjectSchema = (schemaId?: string, schemaName?: string) => {
+    const haystack = `${schemaId ?? ''} ${schemaName ?? ''}`.toLowerCase();
+    return haystack.includes('project') || haystack.includes('projeto');
+  };
+
+  const isProjectActive = (node: Node) => {
+    const props = node.props as Record<string, unknown> | undefined;
+    const statusRaw =
+      (typeof props?.projectStatus === 'string' && props.projectStatus) ||
+      (typeof props?.status === 'string' && props.status) ||
+      '';
+    const status = statusRaw.toLowerCase();
+    if (!status) {
+      return true;
+    }
+    return !['done', 'paused', 'archived', 'inactive', 'cancelled'].includes(status);
+  };
+
+  const projects = React.useMemo(() => {
+    return items.filter((item) => {
+      if (item.nodeType !== 'folder') {
+        return false;
+      }
+      const props = item.props as Record<string, unknown> | undefined;
+      const spaceValue = typeof props?.space === 'string' ? props.space : undefined;
+      if (spaceValue && spaceValue !== space) {
+        return false;
+      }
+      const schemaId = getSchemaIdFromProps(item.props as Record<string, unknown> | undefined);
+      if (!schemaId) {
+        return false;
+      }
+      const schema = schemasById.get(schemaId) as PropertySchema | undefined;
+      return isProjectSchema(schemaId, schema?.name);
+    });
+  }, [items, schemasById, space]);
+
+  const projectsMissingNext = React.useMemo(() => {
+    const byProject = new Map<string, TaskIndexRow[]>();
+    openRows.forEach((row) => {
+      if (!row.projectId) {
+        return;
+      }
+      const list = byProject.get(row.projectId) ?? [];
+      list.push(row);
+      byProject.set(row.projectId, list);
+    });
+    return projects.filter((project) => {
+      if (!isProjectActive(project)) {
+        return false;
+      }
+      const rows = byProject.get(project.id) ?? [];
+      const hasNext = rows.some((row) => row.isNextAction && row.status !== 'DONE');
+      const hasDoing = rows.some((row) => row.status === 'DOING');
+      return !hasNext && !hasDoing;
+    });
+  }, [openRows, projects]);
 
   const handleOpenTask = (task: IndexedTask) => {
     navigate(`/item/${task.noteId}`, { state: { highlightBlockId: task.blockId } });
@@ -162,7 +267,7 @@ export default function ReviewPage() {
       await setChecklistDue(task.noteId, task.blockId, due);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir vencimento: ${message}`);
+      notifier.error(`Erro ao definir prazo: ${message}`);
     }
   };
 
@@ -183,7 +288,7 @@ export default function ReviewPage() {
       await updateItemProps(node.id, { props: nextProps });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir vencimento: ${message}`);
+      notifier.error(`Erro ao definir prazo: ${message}`);
     }
   };
 
@@ -264,7 +369,7 @@ export default function ReviewPage() {
                   )}
                   <Box sx={{ minWidth: { xs: '100%', sm: 160 } }}>
                     <DateField
-                      label="Vencimento"
+                      label="Prazo"
                       size="small"
                       value={task.due ?? ''}
                       onCommit={(next) => handleTaskDue(task, next)}
@@ -312,7 +417,7 @@ export default function ReviewPage() {
               <Stack direction="row" spacing={0.5} alignItems="center">
                 <Box sx={{ width: 150 }}>
                   <DateField
-                    label="Vencimento"
+                    label="Prazo"
                     size="small"
                     value={getNodeDue(item)}
                     onClick={(event) => event.stopPropagation()}
@@ -381,6 +486,10 @@ export default function ReviewPage() {
 
       <Section title="Proximas 7 dias" count={upcomingTasks.length}>
         {renderTaskList(upcomingTasks)}
+      </Section>
+
+      <Section title="Projetos sem proxima acao" count={projectsMissingNext.length}>
+        {renderNodeList(projectsMissingNext)}
       </Section>
 
       <Section title={`Notas stale (${STALE_NOTE_DAYS}d)`} count={staleNotes.length}>

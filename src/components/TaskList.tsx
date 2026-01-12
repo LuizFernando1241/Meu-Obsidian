@@ -40,6 +40,7 @@ type TaskListProps = {
   showMetaControls?: boolean;
   selectedTaskId?: string;
   onSelectTask?: (task: IndexedTask) => void;
+  onDragStartTask?: (task: IndexedTask, event: React.DragEvent<HTMLLIElement>) => void;
 };
 
 const formatText = (text: string) => (text.trim() ? text : 'Checklist');
@@ -75,6 +76,7 @@ export default function TaskList({
   showMetaControls = false,
   selectedTaskId,
   onSelectTask,
+  onDragStartTask,
 }: TaskListProps) {
   const [snoozeAnchor, setSnoozeAnchor] = React.useState<HTMLElement | null>(null);
   const [snoozeTask, setSnoozeTask] = React.useState<IndexedTask | null>(null);
@@ -150,6 +152,8 @@ export default function TaskList({
       selected={selectedTaskId === `${task.noteId}:${task.blockId}`}
       sx={{ alignItems: 'flex-start' }}
       onClick={() => onSelectTask?.(task)}
+      draggable={Boolean(onDragStartTask)}
+      onDragStart={(event) => onDragStartTask?.(task, event)}
     >
         <Checkbox
           checked={task.checked}
@@ -195,13 +199,13 @@ export default function TaskList({
             {task.snoozedUntil && (
               <Chip
                 size="small"
-                label={`Adiada ate ${task.snoozedUntil}`}
+                label={`Agendada para ${task.snoozedUntil}`}
                 variant="outlined"
               />
             )}
             <Box sx={{ minWidth: { xs: '100%', sm: 160 } }}>
               <DateField
-                label="Vencimento"
+                label="Prazo"
                 size="small"
                 value={task.due ?? ''}
                 onCommit={(next) => onUpdateDue(task, next)}
@@ -209,11 +213,11 @@ export default function TaskList({
               />
             </Box>
             {onSnooze && (
-              <Tooltip title="Adiar">
+              <Tooltip title="Agendar">
                 <IconButton
                   size="small"
                   onClick={(event) => handleOpenSnoozeMenu(task, event.currentTarget)}
-                  aria-label="Adiar"
+                  aria-label="Agendar"
                 >
                   <AccessTime fontSize="small" />
                 </IconButton>
@@ -318,16 +322,16 @@ export default function TaskList({
         open={Boolean(snoozeAnchor)}
         onClose={handleCloseSnoozeMenu}
       >
-        <MenuItem onClick={() => handleSnoozeDays(1)}>Adiar +1 dia</MenuItem>
-        <MenuItem onClick={() => handleSnoozeDays(3)}>Adiar +3 dias</MenuItem>
-        <MenuItem onClick={() => handleSnoozeDays(7)}>Adiar +7 dias</MenuItem>
+        <MenuItem onClick={() => handleSnoozeDays(1)}>Agendar +1 dia</MenuItem>
+        <MenuItem onClick={() => handleSnoozeDays(3)}>Agendar +3 dias</MenuItem>
+        <MenuItem onClick={() => handleSnoozeDays(7)}>Agendar +7 dias</MenuItem>
         <MenuItem onClick={handleOpenSnoozeDialog}>Escolher data...</MenuItem>
         {snoozeTask?.snoozedUntil && (
-          <MenuItem onClick={handleClearSnooze}>Remover adiamento</MenuItem>
+          <MenuItem onClick={handleClearSnooze}>Remover agendamento</MenuItem>
         )}
       </Menu>
       <Dialog open={snoozeDialogOpen} onClose={() => setSnoozeDialogOpen(false)}>
-        <DialogTitle>Adiar ate</DialogTitle>
+        <DialogTitle>Agendar para</DialogTitle>
         <DialogContent>
           <DateField
             value={snoozeDate}

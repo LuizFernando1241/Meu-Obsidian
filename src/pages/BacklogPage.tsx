@@ -20,13 +20,7 @@ import type { IndexedTask } from '../tasks/taskIndex';
 import { mapTaskIndexRow } from '../tasks/taskIndexView';
 import { buildPathCache } from '../vault/pathCache';
 
-const PRIORITY_ORDER: Record<string, number> = {
-  P1: 3,
-  P2: 2,
-  P3: 1,
-};
-
-export default function TodayViewPage() {
+export default function BacklogPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
   const space = useSpaceStore((state) => state.space);
@@ -51,7 +45,7 @@ export default function TodayViewPage() {
   const todayISO = getTodayISO();
   const tasks = React.useMemo(() => {
     return tasksIndex
-      .filter((row) => row.scheduledDay === todayISO && row.status !== 'DONE')
+      .filter((row) => !row.scheduledDay && row.status !== 'DONE')
       .map((row) =>
         mapTaskIndexRow(
           row,
@@ -61,24 +55,6 @@ export default function TodayViewPage() {
         ),
       );
   }, [notesById, pathCache, tasksIndex, todayISO]);
-
-  const filtered = React.useMemo(
-    () =>
-      tasks
-        .sort((a, b) => {
-          const leftPriority = PRIORITY_ORDER[a.priority ?? ''] ?? 0;
-          const rightPriority = PRIORITY_ORDER[b.priority ?? ''] ?? 0;
-          if (leftPriority !== rightPriority) {
-            return rightPriority - leftPriority;
-          }
-          const noteCompare = a.noteTitle.localeCompare(b.noteTitle);
-          if (noteCompare !== 0) {
-            return noteCompare;
-          }
-          return a.text.localeCompare(b.text);
-        }),
-    [tasks],
-  );
 
   const handleToggle = async (task: IndexedTask, checked: boolean) => {
     try {
@@ -103,7 +79,7 @@ export default function TodayViewPage() {
       await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir agendamento: ${message}`);
+      notifier.error(`Erro ao agendar: ${message}`);
     }
   };
 
@@ -124,18 +100,18 @@ export default function TodayViewPage() {
     <Stack spacing={3}>
       <Stack spacing={1}>
         <Typography variant="h4" component="h1">
-          Hoje
+          Backlog
         </Typography>
         <Typography color="text.secondary">
-          {filtered.length} tarefas para hoje.
+          {tasks.length} tarefas sem agendamento.
         </Typography>
       </Stack>
 
       <TaskGroupedList
-        tasks={filtered}
+        tasks={tasks}
         groupMode="path"
-        storageKey="today"
-        emptyMessage="Nenhuma tarefa para hoje."
+        storageKey="backlog"
+        emptyMessage="Nenhuma tarefa no backlog."
         onToggle={handleToggle}
         onOpenNote={handleOpenNote}
         onUpdateDue={handleUpdateDue}

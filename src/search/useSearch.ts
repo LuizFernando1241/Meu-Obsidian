@@ -4,10 +4,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { filterActiveNodes } from '../data/deleted';
 import { db } from '../data/db';
 import type { NodeType, PropertySchema } from '../data/types';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { searchIndexService } from './indexService';
 import { buildPathCache } from '../vault/pathCache';
+import { searchTaskIndex, type TaskSearchHit } from './providers/tasksProvider';
 
-export type SearchHit = {
+export type NodeSearchHit = {
+  kind: 'node';
   id: string;
   title: string;
   type: NodeType;
@@ -16,7 +19,9 @@ export type SearchHit = {
   score?: number;
 };
 
-export type TypeFilter = 'all' | NodeType;
+export type SearchHit = NodeSearchHit | TaskSearchHit;
+
+export type TypeFilter = 'all' | NodeType | 'task';
 
 const normalizeSnippet = (text: string) => text.replace(/\s+/g, ' ').trim();
 const normalizeFilterText = (text: string) =>
@@ -25,7 +30,7 @@ const normalizeFilterText = (text: string) =>
 type SearchTokens = {
   text: string;
   path?: string;
-  type?: NodeType;
+  type?: TypeFilter;
   scope?: 'title' | 'content';
 };
 
@@ -33,7 +38,7 @@ const parseSearchTokens = (raw: string): SearchTokens => {
   const tokensRegex = /\b(path|type|in):(?:"([^"]+)"|([^\s]+))/gi;
   let match: RegExpExecArray | null;
   let pathValue: string | undefined;
-  let typeValue: NodeType | undefined;
+  let typeValue: TypeFilter | undefined;
   let scopeValue: 'title' | 'content' | undefined;
 
   while ((match = tokensRegex.exec(raw)) !== null) {
@@ -44,8 +49,8 @@ const parseSearchTokens = (raw: string): SearchTokens => {
     }
     if (key === 'type') {
       const normalized = value.toLowerCase();
-      if (normalized === 'note' || normalized === 'folder') {
-        typeValue = normalized as NodeType;
+      if (normalized === 'note' || normalized === 'folder' || normalized === 'task') {
+        typeValue = normalized as TypeFilter;
       }
     }
     if (key === 'in') {
@@ -79,10 +84,16 @@ const getDisplayPath = (pathText?: string) => {
 
 export const useSearchIndex = () => {
   const items = useLiveQuery(() => db.items.toArray(), []);
+  const tasksIndex = useLiveQuery(() => db.tasks_index.toArray(), []);
   const schema = useLiveQuery(() => db.schemas.get('global') as Promise<PropertySchema | undefined>, []);
+  const space = useSpaceStore((state) => state.space);
   const activeItems = React.useMemo(
     () => (items ? filterActiveNodes(items) : undefined),
     [items],
+  );
+  const nodesById = React.useMemo(
+    () => new Map((activeItems ?? []).map((node) => [node.id, node])),
+    [activeItems],
   );
   const pathCache = React.useMemo(
     () => (activeItems ? buildPathCache(activeItems) : new Map()),
@@ -126,10 +137,14 @@ export const useSearchIndex = () => {
 
   const search = React.useCallback(
     (query: string, typeFilter: TypeFilter = 'all'): SearchHit[] => {
+      const trimmedQuery = query.trim();
+      if (!trimmedQuery) {
+        return [] as SearchHit[];
+      }
       const parsed = parseSearchTokens(query);
       const textQuery = parsed.text;
       const normalizedText = normalizeFilterText(textQuery);
-      const effectiveType = parsed.type ?? (typeFilter === 'all' ? undefined : typeFilter);
+      const effectiveType = parsed.type ?? typeFilter;
       const pathNeedle = parsed.path ? normalizeFilterText(parsed.path) : '';
       const scope = parsed.scope;
 
@@ -140,26 +155,28 @@ export const useSearchIndex = () => {
       let baseResults: Array<{ id: string; score?: number }> = [];
 
       if (textQuery) {
-        baseResults = searchIndexService.search(
-          textQuery,
-          effectiveType ?? 'all',
-          80,
-        );
-      } else {
+        const nodeTypeFilter =
+          effectiveType === 'note' || effectiveType === 'folder' ? effectiveType : 'all';
+        baseResults = searchIndexService.search(textQuery, nodeTypeFilter, 80);
+      } else if (effectiveType === 'note' || effectiveType === 'folder' || effectiveType === 'all') {
         baseResults = activeItems
-          .filter((item) => (effectiveType ? item.nodeType === effectiveType : true))
+          .filter((item) =>
+            effectiveType === 'all' || effectiveType === undefined
+              ? true
+              : item.nodeType === effectiveType,
+          )
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .map((item) => ({ id: item.id }));
       }
 
-      const hits: SearchHit[] = [];
+      const hits: NodeSearchHit[] = [];
 
       baseResults.forEach((result) => {
         const doc = searchIndexService.getDocById(String(result.id));
         if (!doc) {
           return;
         }
-        if (effectiveType && doc.type !== effectiveType) {
+        if (effectiveType && effectiveType !== 'all' && effectiveType !== doc.type) {
           return;
         }
 
@@ -188,6 +205,7 @@ export const useSearchIndex = () => {
         const pathInfo = pathCache.get(String(result.id));
 
         hits.push({
+          kind: 'node',
           id: String(result.id),
           title: doc.title,
           type: doc.type,
@@ -196,10 +214,31 @@ export const useSearchIndex = () => {
           score: typeof result.score === 'number' ? result.score : undefined,
         });
       });
+      const taskHits =
+        effectiveType === 'note' || effectiveType === 'folder'
+          ? []
+          : searchTaskIndex({
+              query,
+              tasks: tasksIndex ?? [],
+              nodesById,
+              pathCache,
+              space,
+              limit: 80,
+            });
 
-      return hits.slice(0, 50);
+      if (effectiveType === 'task') {
+        return taskHits.slice(0, 50);
+      }
+
+      if (effectiveType === 'note' || effectiveType === 'folder') {
+        return hits.slice(0, 50);
+      }
+
+      return [...hits, ...taskHits]
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, 50);
     },
-    [activeItems, pathCache],
+    [activeItems, nodesById, pathCache, space, tasksIndex],
   );
 
   const getSnippet = React.useCallback((id: string, query: string) => {

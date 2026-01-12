@@ -15,6 +15,8 @@ export type IndexedTask = {
   priority?: 'P1' | 'P2' | 'P3';
   status?: 'open' | 'doing' | 'waiting';
   recurrence?: 'weekly' | 'monthly';
+  projectId?: string;
+  areaId?: string;
   noteTitle: string;
   notePath?: string;
   updatedAt: number;

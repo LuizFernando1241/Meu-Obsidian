@@ -58,6 +58,7 @@ export type Block = {
     priority?: 'P1' | 'P2' | 'P3';
     status?: 'open' | 'doing' | 'waiting';
     recurrence?: 'weekly' | 'monthly';
+    isNextAction?: boolean;
   };
 };
 
@@ -158,6 +159,77 @@ export type TaskStatus = 'todo' | 'doing' | 'done';
 export type Recurrence = {
   freq: 'daily' | 'weekly' | 'monthly';
   interval: number;
+};
+
+export type Space = 'WORK' | 'PERSONAL';
+
+export type TaskIndexStatus = 'TODO' | 'DOING' | 'DONE' | 'WAITING';
+
+export type TaskPriority = 'P1' | 'P2' | 'P3' | 'P4';
+
+export type InboxStatus = 'OPEN' | 'PROCESSED';
+
+export type InboxConvertedTo = 'TASK' | 'NOTE';
+
+export type TaskIndexRow = {
+  taskId: string;
+  userId: string;
+  space: Space;
+  noteId: string;
+  folderId: string | null;
+  blockId: string;
+  itemId: string;
+  title: string;
+  titleNorm: string;
+  status: TaskIndexStatus;
+  priority: TaskPriority;
+  scheduledDay?: string;
+  dueDay?: string;
+  completedAt?: number;
+  isNextAction: boolean;
+  orderKey: number;
+  estimateMin?: number;
+  projectId?: string;
+  areaId?: string;
+  createdAt: number;
+  updatedAt: number;
+  sourceHash: string;
+};
+
+export type UserStateRow = {
+  userId: string;
+  space: Space;
+  focusTaskId?: string;
+  focusQueue: string[];
+  capacityLimitMin: number;
+  updatedAt: number;
+};
+
+export type InboxItemRow = {
+  id: string;
+  userId: string;
+  space: Space;
+  content: string;
+  status: InboxStatus;
+  convertedTo?: InboxConvertedTo;
+  createdAt: number;
+  processedAt?: number;
+};
+
+export type AppMetaRow = {
+  key: string;
+  value: unknown;
+  updatedAt?: number;
+};
+
+export type IndexJobRow = {
+  id: string;
+  type: 'TASK_INDEX_REBUILD';
+  status: 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED';
+  progress: number;
+  cursor?: unknown;
+  error?: string;
+  updatedAt: number;
 };
 
 export type LegacyTaskFields = {

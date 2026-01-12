@@ -13,19 +13,23 @@ import {
 } from '@mui/material';
 import {
   Add,
+  Bolt,
   Description,
   Folder,
   HelpOutline,
   Home,
   Hub,
+  Inbox,
   LocalOffer,
   Settings,
   TaskAlt,
+  ViewList,
 } from '@mui/icons-material';
 
 import { getStaticCommands, type Command } from '../command/commands';
-import { parseInput, stripInputTokens } from '../command/parser';
+import { parseInput } from '../command/parser';
 import type { NodeType } from '../data/types';
+import { useTaskSelection } from '../store/useTaskSelection';
 import { useSearchIndex, type SearchHit } from '../search/useSearch';
 
 type CommandPaletteProps = {
@@ -58,6 +62,12 @@ const navIcon = (path: string) => {
   switch (path) {
     case '/':
       return <Home fontSize="small" />;
+    case '/focus':
+      return <Bolt fontSize="small" />;
+    case '/backlog':
+      return <ViewList fontSize="small" />;
+    case '/inbox':
+      return <Inbox fontSize="small" />;
     case '/tasks':
       return <TaskAlt fontSize="small" />;
     case '/notes':
@@ -78,15 +88,16 @@ const navIcon = (path: string) => {
 
 export default function CommandPalette({ open, onClose, onExecute }: CommandPaletteProps) {
   const { search, getSnippet } = useSearchIndex();
+  const selectedTask = useTaskSelection((state) => state.selectedTask);
   const [query, setQuery] = React.useState('');
   const [highlighted, setHighlighted] = React.useState(0);
 
   const staticCommands = React.useMemo(() => getStaticCommands(), []);
   const parsed = React.useMemo(() => parseInput(query), [query]);
-  const searchQuery = React.useMemo(() => stripInputTokens(query), [query]);
+  const searchQuery = React.useMemo(() => query.trim(), [query]);
 
   const results = React.useMemo<SearchHit[]>(() => {
-    if (!searchQuery.trim()) {
+    if (!searchQuery) {
       return [];
     }
     return search(searchQuery).slice(0, 12);
@@ -105,6 +116,17 @@ export default function CommandPalette({ open, onClose, onExecute }: CommandPale
           icon: <Add fontSize="small" />,
         });
       });
+      if (selectedTask) {
+        staticCommands.taskActions.forEach((command) => {
+          if (command.kind !== 'task-action') {
+            return;
+          }
+          entries.push({
+            command,
+            icon: <TaskAlt fontSize="small" />,
+          });
+        });
+      }
       staticCommands.nav.forEach((command) => {
         if (command.kind !== 'nav') {
           return;
@@ -118,6 +140,23 @@ export default function CommandPalette({ open, onClose, onExecute }: CommandPale
     }
 
     results.forEach((result) => {
+      if (result.kind === 'task') {
+        const subtitleParts = [
+          result.noteTitle ? `Nota: ${result.noteTitle}` : undefined,
+          result.notePath ? `Pasta: ${result.notePath}` : undefined,
+        ].filter(Boolean);
+        entries.push({
+          command: {
+            kind: 'open-task',
+            task: result.task,
+            title: result.title || 'Sem titulo',
+            subtitle: subtitleParts.join(' \u2022 ') || undefined,
+          },
+          icon: <TaskAlt fontSize="small" />,
+        });
+        return;
+      }
+
       const snippet = getSnippet(result.id, searchQuery);
       const typeLabel = TYPE_LABELS[result.type];
       const subtitle = snippet ? `${typeLabel} \u2022 ${snippet}` : typeLabel;
@@ -152,7 +191,7 @@ export default function CommandPalette({ open, onClose, onExecute }: CommandPale
     });
 
     return entries;
-  }, [query, staticCommands, results, parsed, getSnippet, searchQuery]);
+  }, [query, staticCommands, results, parsed, getSnippet, searchQuery, selectedTask]);
 
   React.useEffect(() => {
     if (!open) {

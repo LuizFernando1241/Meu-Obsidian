@@ -46,8 +46,8 @@ import { readRemoteVault, testConnection } from '../sync/gistClient';
 import { syncNowManual, setAutoSyncEnabled, setIntervalMin } from '../sync/syncService';
 import { getSyncPrefs, getSyncState, subscribeSyncState } from '../sync/syncState';
 import type { SyncSettings } from '../sync/types';
-import type { NoteNode, PropertySchema } from '../data/types';
-import { buildTaskIndex } from '../tasks/taskIndex';
+import type { PropertySchema } from '../data/types';
+import type { IndexedTask } from '../tasks/taskIndex';
 import { getTodayISO } from '../tasks/date';
 
 type ImportMode = 'replace' | 'merge';
@@ -124,13 +124,44 @@ export default function SettingsPage() {
   ) ?? [];
   const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
   const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
-  const notes = React.useMemo(
-    () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
-    [nodes],
-  );
+  const tasksIndex = useLiveQuery(() => db.tasks_index.toArray(), []) ?? [];
+  const todayISO = getTodayISO();
   const tasks = React.useMemo(
-    () => buildTaskIndex(notes, getTodayISO()),
-    [notes],
+    () =>
+      tasksIndex.map((row) => {
+        const isDone = row.status === 'DONE';
+        const due = row.dueDay ?? null;
+        const scheduled = row.scheduledDay ?? null;
+        const priority =
+          row.priority === 'P1' || row.priority === 'P2' || row.priority === 'P3'
+            ? row.priority
+            : undefined;
+        const status =
+          row.status === 'DOING' ? 'doing' : row.status === 'WAITING' ? 'waiting' : 'open';
+        const task: IndexedTask = {
+          noteId: row.noteId,
+          blockId: row.blockId,
+          text: row.title,
+          checked: isDone,
+          due,
+          snoozedUntil: scheduled,
+          originalDue: due,
+          effectiveDue: scheduled || due,
+          isSnoozed: Boolean(scheduled && scheduled > todayISO),
+          doneAt: row.completedAt ?? null,
+          priority,
+          status,
+          recurrence: undefined,
+          projectId: row.projectId,
+          areaId: row.areaId,
+          noteTitle: '',
+          notePath: undefined,
+          updatedAt: row.updatedAt,
+          rev: 0,
+        };
+        return task;
+      }),
+    [tasksIndex, todayISO],
   );
   const vaultStats = React.useMemo(
     () => computeVaultStats(nodes, tasks, views, schemas),

@@ -195,7 +195,7 @@ export default function ViewTable({
                 direction={sortState?.by === 'due' ? sortState.dir : 'asc'}
                 onClick={() => handleSort('due')}
               >
-                Vencimento
+                Prazo
               </TableSortLabel>
             </TableCell>
             {showUpdated && (

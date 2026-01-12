@@ -1,4 +1,14 @@
-import type { Item, PropertySchema, SavedView, Tombstone } from '../data/types';
+import type {
+  AppMetaRow,
+  InboxItemRow,
+  IndexJobRow,
+  Item,
+  PropertySchema,
+  SavedView,
+  TaskIndexRow,
+  Tombstone,
+  UserStateRow,
+} from '../data/types';
 import type { Vault } from './vault';
 
 const compareNumber = (left: number, right: number) => {
@@ -7,6 +17,9 @@ const compareNumber = (left: number, right: number) => {
   }
   return left > right ? 1 : -1;
 };
+
+const compareUpdatedAt = (left?: number, right?: number) =>
+  compareNumber(left ?? 0, right ?? 0);
 
 const chooseTombstone = (
   local?: Tombstone,
@@ -140,6 +153,64 @@ const chooseSchema = (
   return { schema: remote, localWon: false };
 };
 
+const chooseByUpdatedAt = <T extends { updatedAt?: number }>(
+  local?: T,
+  remote?: T,
+): { value?: T; localWon: boolean } => {
+  if (!local && !remote) {
+    return { value: undefined, localWon: false };
+  }
+  if (local && !remote) {
+    return { value: local, localWon: true };
+  }
+  if (!local && remote) {
+    return { value: remote, localWon: false };
+  }
+
+  const updatedCompare = compareUpdatedAt(local!.updatedAt, remote!.updatedAt);
+  if (updatedCompare > 0) {
+    return { value: local, localWon: true };
+  }
+  if (updatedCompare < 0) {
+    return { value: remote, localWon: false };
+  }
+
+  return { value: remote, localWon: false };
+};
+
+const inboxTimestamp = (item?: InboxItemRow) =>
+  item ? item.processedAt ?? item.createdAt ?? 0 : 0;
+
+const chooseInboxItem = (
+  local?: InboxItemRow,
+  remote?: InboxItemRow,
+): { item?: InboxItemRow; localWon: boolean } => {
+  if (!local && !remote) {
+    return { item: undefined, localWon: false };
+  }
+  if (local && !remote) {
+    return { item: local, localWon: true };
+  }
+  if (!local && remote) {
+    return { item: remote, localWon: false };
+  }
+
+  const updatedCompare = compareNumber(inboxTimestamp(local), inboxTimestamp(remote));
+  if (updatedCompare > 0) {
+    return { item: local, localWon: true };
+  }
+  if (updatedCompare < 0) {
+    return { item: remote, localWon: false };
+  }
+
+  return { item: remote, localWon: false };
+};
+
+const SYNC_EXCLUDED_META_KEYS = new Set(['taskIndexBuildCheckpoint']);
+
+const filterSyncedMeta = (rows: AppMetaRow[]) =>
+  rows.filter((row) => !SYNC_EXCLUDED_META_KEYS.has(row.key));
+
 export const mergeVaults = (
   local: Vault,
   remote: Vault,
@@ -238,7 +309,146 @@ export const mergeVaults = (
     }
   });
 
-  const pushNeeded = localWonItem || localWonTombstone || localWonView || localWonSchema;
+  const localTasksById = new Map(
+    (local.tasks_index ?? []).map((task) => [task.taskId, task]),
+  );
+  const remoteTasksById = new Map(
+    (remote.tasks_index ?? []).map((task) => [task.taskId, task]),
+  );
+  const taskIds = new Set<string>([
+    ...localTasksById.keys(),
+    ...remoteTasksById.keys(),
+  ]);
+  const mergedTasks: TaskIndexRow[] = [];
+  let localWonTask = false;
+
+  taskIds.forEach((id) => {
+    const { value, localWon } = chooseByUpdatedAt(
+      localTasksById.get(id),
+      remoteTasksById.get(id),
+    );
+    if (value) {
+      mergedTasks.push(value);
+      if (localWon) {
+        localWonTask = true;
+      }
+    }
+  });
+
+  const localUserStateByKey = new Map(
+    (local.user_state ?? []).map((row) => [`${row.userId}::${row.space}`, row]),
+  );
+  const remoteUserStateByKey = new Map(
+    (remote.user_state ?? []).map((row) => [`${row.userId}::${row.space}`, row]),
+  );
+  const userStateKeys = new Set<string>([
+    ...localUserStateByKey.keys(),
+    ...remoteUserStateByKey.keys(),
+  ]);
+  const mergedUserState: UserStateRow[] = [];
+  let localWonUserState = false;
+
+  userStateKeys.forEach((key) => {
+    const { value, localWon } = chooseByUpdatedAt(
+      localUserStateByKey.get(key),
+      remoteUserStateByKey.get(key),
+    );
+    if (value) {
+      mergedUserState.push(value);
+      if (localWon) {
+        localWonUserState = true;
+      }
+    }
+  });
+
+  const localInboxById = new Map(
+    (local.inbox_items ?? []).map((item) => [item.id, item]),
+  );
+  const remoteInboxById = new Map(
+    (remote.inbox_items ?? []).map((item) => [item.id, item]),
+  );
+  const inboxIds = new Set<string>([
+    ...localInboxById.keys(),
+    ...remoteInboxById.keys(),
+  ]);
+  const mergedInbox: InboxItemRow[] = [];
+  let localWonInbox = false;
+
+  inboxIds.forEach((id) => {
+    const { item, localWon } = chooseInboxItem(
+      localInboxById.get(id),
+      remoteInboxById.get(id),
+    );
+    if (item) {
+      mergedInbox.push(item);
+      if (localWon) {
+        localWonInbox = true;
+      }
+    }
+  });
+
+  const localMetaByKey = new Map(
+    filterSyncedMeta(local.app_meta ?? []).map((meta) => [meta.key, meta]),
+  );
+  const remoteMetaByKey = new Map(
+    filterSyncedMeta(remote.app_meta ?? []).map((meta) => [meta.key, meta]),
+  );
+  const metaKeys = new Set<string>([
+    ...localMetaByKey.keys(),
+    ...remoteMetaByKey.keys(),
+  ]);
+  const mergedMeta: AppMetaRow[] = [];
+  let localWonMeta = false;
+
+  metaKeys.forEach((key) => {
+    const { value, localWon } = chooseByUpdatedAt(
+      localMetaByKey.get(key),
+      remoteMetaByKey.get(key),
+    );
+    if (value) {
+      mergedMeta.push(value);
+      if (localWon) {
+        localWonMeta = true;
+      }
+    }
+  });
+
+  const localJobsById = new Map(
+    (local.index_jobs ?? []).map((job) => [job.id, job]),
+  );
+  const remoteJobsById = new Map(
+    (remote.index_jobs ?? []).map((job) => [job.id, job]),
+  );
+  const jobIds = new Set<string>([
+    ...localJobsById.keys(),
+    ...remoteJobsById.keys(),
+  ]);
+  const mergedJobs: IndexJobRow[] = [];
+  let localWonJob = false;
+
+  jobIds.forEach((id) => {
+    const { value, localWon } = chooseByUpdatedAt(
+      localJobsById.get(id),
+      remoteJobsById.get(id),
+    );
+    if (value) {
+      mergedJobs.push(value);
+      if (localWon) {
+        localWonJob = true;
+      }
+    }
+  });
+
+  const pushNeeded =
+    localWonItem ||
+    localWonTombstone ||
+    localWonView ||
+    localWonSchema ||
+    localWonTask ||
+    localWonUserState ||
+    localWonInbox ||
+    localWonMeta ||
+    localWonJob;
 
   return {
     merged: {
@@ -248,6 +458,11 @@ export const mergeVaults = (
       tombstones: mergedTombstones,
       views: mergedViews,
       schemas: mergedSchemas,
+      tasks_index: mergedTasks,
+      user_state: mergedUserState,
+      inbox_items: mergedInbox,
+      app_meta: mergedMeta,
+      index_jobs: mergedJobs,
     },
     pushNeeded,
   };

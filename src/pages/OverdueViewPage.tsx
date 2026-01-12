@@ -14,9 +14,10 @@ import {
   toggleChecklist,
 } from '../data/repo';
 import type { NoteNode } from '../data/types';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { getTodayISO } from '../tasks/date';
-import { buildTaskIndex, type IndexedTask } from '../tasks/taskIndex';
-import { getTaskNotePath } from '../tasks/taskPath';
+import type { IndexedTask } from '../tasks/taskIndex';
+import { mapTaskIndexRow } from '../tasks/taskIndexView';
 import { buildPathCache } from '../vault/pathCache';
 
 const PRIORITY_ORDER: Record<string, number> = {
@@ -28,6 +29,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 export default function OverdueViewPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
+  const space = useSpaceStore((state) => state.space);
 
   const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
   const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
@@ -35,26 +37,35 @@ export default function OverdueViewPage() {
     () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
     [nodes],
   );
+  const notesById = React.useMemo(
+    () => new Map(notes.map((note) => [note.id, note])),
+    [notes],
+  );
   const pathCache = React.useMemo(() => buildPathCache(nodes), [nodes]);
+  const tasksIndex =
+    useLiveQuery(
+      () => db.tasks_index.where('space').equals(space).toArray(),
+      [space],
+    ) ?? [];
 
   const todayISO = getTodayISO();
-  const tasks = React.useMemo(
-    () =>
-      buildTaskIndex(notes as NoteNode[], todayISO).map((task) => ({
-        ...task,
-        notePath: getTaskNotePath(pathCache.get(task.noteId)),
-      })),
-    [notes, pathCache, todayISO],
-  );
+  const tasks = React.useMemo(() => {
+    return tasksIndex
+      .filter((row) => row.dueDay && row.dueDay < todayISO && row.status !== 'DONE')
+      .map((row) =>
+        mapTaskIndexRow(
+          row,
+          notesById.get(row.noteId),
+          pathCache.get(row.noteId),
+          todayISO,
+        ),
+      );
+  }, [notesById, pathCache, tasksIndex, todayISO]);
 
   const filtered = React.useMemo(
     () =>
-      tasks
-        .filter(
-          (task) => !task.checked && task.effectiveDue && task.effectiveDue < todayISO,
-        )
-        .sort((a, b) => {
-          const dueCompare = (a.effectiveDue ?? '').localeCompare(b.effectiveDue ?? '');
+      tasks.sort((a, b) => {
+          const dueCompare = (a.due ?? '').localeCompare(b.due ?? '');
           if (dueCompare !== 0) {
             return dueCompare;
           }
@@ -69,7 +80,7 @@ export default function OverdueViewPage() {
           }
           return a.text.localeCompare(b.text);
         }),
-    [tasks, todayISO],
+    [tasks],
   );
 
   const handleToggle = async (task: IndexedTask, checked: boolean) => {
@@ -86,7 +97,7 @@ export default function OverdueViewPage() {
       await setChecklistDue(task.noteId, task.blockId, due);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir vencimento: ${message}`);
+      notifier.error(`Erro ao definir prazo: ${message}`);
     }
   };
 
@@ -95,7 +106,7 @@ export default function OverdueViewPage() {
       await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir adiamento: ${message}`);
+      notifier.error(`Erro ao definir agendamento: ${message}`);
     }
   };
 
@@ -104,7 +115,7 @@ export default function OverdueViewPage() {
       await clearChecklistSnooze(task.noteId, task.blockId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao limpar adiamento: ${message}`);
+      notifier.error(`Erro ao limpar agendamento: ${message}`);
     }
   };
 

@@ -1,5 +1,6 @@
 import type { SvgIconComponent } from '@mui/icons-material';
 import {
+  Bolt,
   CheckBoxOutlined,
   DeleteOutline,
   EventBusyOutlined,
@@ -7,8 +8,12 @@ import {
   HelpOutline,
   HomeOutlined,
   HubOutlined,
+  InboxOutlined,
   LocalOfferOutlined,
   NoteOutlined,
+  PlaylistAddCheckOutlined,
+  ViewWeekOutlined,
+  WorkspacesOutlined,
   SettingsOutlined,
   TodayOutlined,
 } from '@mui/icons-material';
@@ -22,12 +27,17 @@ export type AppRoute = {
 };
 
 export const NAV_ROUTES: AppRoute[] = [
-  { key: 'home', label: 'Inicio', path: '/', icon: HomeOutlined, showInNav: true },
+  { key: 'home', label: 'Inicio', path: '/', icon: HomeOutlined, showInNav: false },
+  { key: 'focus', label: 'Agora', path: '/focus', icon: Bolt, showInNav: true },
+  { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
+  { key: 'week', label: 'Semana', path: '/week', icon: ViewWeekOutlined, showInNav: true },
+  { key: 'backlog', label: 'Backlog', path: '/backlog', icon: PlaylistAddCheckOutlined, showInNav: true },
+  { key: 'inbox', label: 'Inbox', path: '/inbox', icon: InboxOutlined, showInNav: true },
+  { key: 'projects', label: 'Projetos', path: '/projects', icon: WorkspacesOutlined, showInNav: true },
+  { key: 'notes', label: 'Notas', path: '/notes', icon: NoteOutlined, showInNav: true },
   { key: 'review', label: 'Revisao', path: '/review', icon: FactCheckOutlined, showInNav: true },
   { key: 'tasks', label: 'Tarefas', path: '/tasks', icon: CheckBoxOutlined, showInNav: true },
-  { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
   { key: 'overdue', label: 'Atrasadas', path: '/overdue', icon: EventBusyOutlined, showInNav: true },
-  { key: 'notes', label: 'Notas', path: '/notes', icon: NoteOutlined, showInNav: true },
   { key: 'trash', label: 'Lixeira', path: '/trash', icon: DeleteOutline, showInNav: true },
   { key: 'tags', label: 'Tags', path: '/tags', icon: LocalOfferOutlined, showInNav: true },
   { key: 'graph', label: 'Grafo', path: '/graph', icon: HubOutlined, showInNav: true },

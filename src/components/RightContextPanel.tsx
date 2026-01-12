@@ -27,6 +27,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 
 import LocalGraph from './graph/LocalGraph';
 import PropertiesEditor from './PropertiesEditor';
+import TaskDetailsPanel from '../features/tasks/TaskDetailsPanel';
 import {
   findWikilinkSnippets,
   isExternalLinkTarget,
@@ -42,6 +43,7 @@ import { blocksToMarkdown, parseMarkdownToBlocks } from '../editor/markdownToBlo
 import { deleteNode, resolveTitleToId, updateItemProps } from '../data/repo';
 import type { Block, Node, NodeType } from '../data/types';
 import ConfirmDialog from './ConfirmDialog';
+import { useTaskSelection } from '../store/useTaskSelection';
 
 type RightContextPanelProps = {
   isMobile: boolean;
@@ -64,6 +66,10 @@ export default function RightContextPanel({
   onClose,
   width,
 }: RightContextPanelProps) {
+  const { selectedTask, clearSelection } = useTaskSelection((state) => ({
+    selectedTask: state.selectedTask,
+    clearSelection: state.clearSelection,
+  }));
   const match = useMatch('/item/:id');
   const navigate = useNavigate();
   const itemId = match?.params.id ?? '';
@@ -378,6 +384,26 @@ export default function RightContextPanel({
         borderTopRightRadius: 16,
       }
     : { width };
+
+  if (selectedTask) {
+    return (
+      <Drawer
+        anchor="right"
+        open={open}
+        onClose={onClose}
+        variant={isMobile ? 'temporary' : 'persistent'}
+        sx={{
+          flexShrink: 0,
+          '& .MuiDrawer-paper': { width, boxSizing: 'border-box' },
+        }}
+      >
+        <Toolbar />
+        <Box sx={{ px: 2, py: 2 }}>
+          <TaskDetailsPanel task={selectedTask} onClear={clearSelection} />
+        </Box>
+      </Drawer>
+    );
+  }
 
   return (
     <Drawer

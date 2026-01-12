@@ -65,7 +65,7 @@ const SORT_LABELS: Record<SavedViewSort['by'], string> = {
   type: 'Tipo',
   path: 'Caminho',
   status: 'Status',
-  due: 'Vencimento',
+  due: 'Prazo',
   priority: 'Prioridade',
 };
 
@@ -264,10 +264,10 @@ export default function ViewPage() {
       parts.push(`ate ${query.due.to}`);
     }
     if (query.due.missing) {
-      parts.push('sem vencimento');
+      parts.push('sem prazo');
     }
     if (parts.length > 0) {
-      summary.push(`Vencimento: ${parts.join(', ')}`);
+      summary.push(`Prazo: ${parts.join(', ')}`);
     }
   }
   if (typeof query.updatedSinceDays === 'number') {

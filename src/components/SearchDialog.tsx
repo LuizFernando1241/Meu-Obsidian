@@ -21,12 +21,18 @@ import { useSearchIndex, type SearchHit, type TypeFilter } from '../search/useSe
 type SearchDialogProps = {
   open: boolean;
   onClose: () => void;
-  onSelect: (id: string) => void;
+  onSelect: (hit: SearchHit) => void;
 };
 
-const TYPE_LABELS: Record<NodeType, string> = {
+const NODE_TYPE_LABELS: Record<NodeType, string> = {
   note: 'Notas',
   folder: 'Pastas',
+};
+const TASK_STATUS_LABELS: Record<string, string> = {
+  TODO: 'Aberta',
+  DOING: 'Em andamento',
+  WAITING: 'Aguardando',
+  DONE: 'Concluida',
 };
 
 export default function SearchDialog({ open, onClose, onSelect }: SearchDialogProps) {
@@ -93,13 +99,13 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
       event.preventDefault();
       const selected = results[highlighted];
       if (selected) {
-        onSelect(selected.id);
+        onSelect(selected);
       }
     }
   };
 
-  const handleSelect = (id: string) => {
-    onSelect(id);
+  const handleSelect = (hit: SearchHit) => {
+    onSelect(hit);
   };
 
   return (
@@ -128,6 +134,7 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
             <Tab value="all" label="Todos" />
             <Tab value="note" label="Notas" />
             <Tab value="folder" label="Pastas" />
+            <Tab value="task" label="Tarefas" />
           </Tabs>
           {!ready ? (
             <LoadingState message="Indexando itens..." />
@@ -138,8 +145,50 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
           ) : (
             <List disablePadding>
               {results.map((result, index) => {
+                if (result.kind === 'task') {
+                  const metaParts = [];
+                  if (result.status) {
+                    metaParts.push(TASK_STATUS_LABELS[result.status] ?? result.status);
+                  }
+                  if (result.scheduledDay) {
+                    metaParts.push(`Agendado ${result.scheduledDay}`);
+                  }
+                  if (result.dueDay) {
+                    metaParts.push(`Prazo ${result.dueDay}`);
+                  }
+                  const secondary = (
+                    <Stack spacing={0.25}>
+                      <Typography variant="body2" color="text.secondary">
+                        {`Tarefa \u2022 ${result.noteTitle} \u2022 ${
+                          result.notePath || 'Raiz'
+                        }`}
+                      </Typography>
+                      {metaParts.length > 0 && (
+                        <Typography variant="body2" color="text.secondary">
+                          {metaParts.join(' \u2022 ')}
+                        </Typography>
+                      )}
+                    </Stack>
+                  );
+
+                  return (
+                    <ListItemButton
+                      key={result.id}
+                      selected={index === highlighted}
+                      onClick={() => handleSelect(result)}
+                    >
+                      <ListItemText
+                        primary={result.title || 'Sem titulo'}
+                        secondary={secondary}
+                        primaryTypographyProps={{ component: 'div' }}
+                        secondaryTypographyProps={{ component: 'div' }}
+                      />
+                    </ListItemButton>
+                  );
+                }
+
                 const snippet = getSnippet(result.id, query);
-                const typeLabel = TYPE_LABELS[result.type];
+                const typeLabel = NODE_TYPE_LABELS[result.type];
                 const pathLabel = result.pathText || 'Raiz';
                 const secondary = (
                   <Stack spacing={0.25}>
@@ -158,7 +207,7 @@ export default function SearchDialog({ open, onClose, onSelect }: SearchDialogPr
                   <ListItemButton
                     key={result.id}
                     selected={index === highlighted}
-                    onClick={() => handleSelect(result.id)}
+                    onClick={() => handleSelect(result)}
                   >
                     <ListItemText
                       primary={result.title || 'Sem titulo'}

@@ -121,6 +121,7 @@ const normalizeTaskMeta = (
   const rawPriority = meta?.priority;
   const rawStatus = meta?.status;
   const rawRecurrence = meta?.recurrence;
+  const rawNextAction = meta?.isNextAction;
   const priority =
     rawPriority === 'P1' || rawPriority === 'P2' || rawPriority === 'P3'
       ? rawPriority
@@ -139,12 +140,13 @@ const normalizeTaskMeta = (
     rawRecurrence === 'weekly' || rawRecurrence === 'monthly'
       ? rawRecurrence
       : undefined;
+  const isNextAction = typeof rawNextAction === 'boolean' ? rawNextAction : undefined;
 
-  if (!priority && !status && !recurrence) {
+  if (!priority && !status && !recurrence && isNextAction === undefined) {
     return undefined;
   }
 
-  return { priority, status, recurrence };
+  return { priority, status, recurrence, isNextAction };
 };
 
 const makeBlock = (text = ''): Block => ({
@@ -253,7 +255,8 @@ const areBlocksEqual = (left: Block[], right: Block[]) => {
         (a.collapsed ?? false) !== (b.collapsed ?? false) ||
         (a.meta?.priority ?? '') !== (b.meta?.priority ?? '') ||
         (a.meta?.status ?? '') !== (b.meta?.status ?? '') ||
-        (a.meta?.recurrence ?? '') !== (b.meta?.recurrence ?? '')
+        (a.meta?.recurrence ?? '') !== (b.meta?.recurrence ?? '') ||
+        (a.meta?.isNextAction ?? false) !== (b.meta?.isNextAction ?? false)
       ) {
         return false;
       }

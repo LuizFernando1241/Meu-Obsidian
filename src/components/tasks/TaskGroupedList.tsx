@@ -18,6 +18,7 @@ import TaskList from '../TaskList';
 import DateField from '../DateField';
 import type { IndexedTask } from '../../tasks/taskIndex';
 import { addDaysISO, getTodayISO } from '../../tasks/date';
+import { useTaskSelection } from '../../store/useTaskSelection';
 
 type GroupMode = 'path' | 'note' | 'none';
 
@@ -99,6 +100,7 @@ export default function TaskGroupedList({
   showMetaControls = false,
   enableShortcuts = true,
 }: TaskGroupedListProps) {
+  const setSelectedTask = useTaskSelection((state) => state.setSelectedTask);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   const [dueDialogTask, setDueDialogTask] = React.useState<IndexedTask | null>(null);
@@ -205,14 +207,20 @@ export default function TaskGroupedList({
 
   React.useEffect(() => {
     if (selectedId && visibleTasks.some((task) => taskKey(task) === selectedId)) {
+      const current = visibleTasks.find((task) => taskKey(task) === selectedId);
+      if (current) {
+        setSelectedTask(current);
+      }
       return;
     }
     const first = visibleTasks[0];
     setSelectedId(first ? taskKey(first) : null);
-  }, [selectedId, visibleTasks]);
+    setSelectedTask(first ?? null);
+  }, [selectedId, setSelectedTask, visibleTasks]);
 
   const handleSelectTask = (task: IndexedTask) => {
     setSelectedId(taskKey(task));
+    setSelectedTask(task);
   };
 
   const cyclePriority = (task: IndexedTask) => {
@@ -332,10 +340,10 @@ export default function TaskGroupedList({
           onSelectTask={handleSelectTask}
         />
         <Dialog open={Boolean(dueDialogTask)} onClose={handleCloseDueDialog}>
-          <DialogTitle>Definir vencimento</DialogTitle>
+          <DialogTitle>Definir prazo</DialogTitle>
           <DialogContent>
             <DateField
-              label="Vencimento"
+              label="Prazo"
               value={dueValue}
               onCommit={(next) => setDueValue(next ?? '')}
               fullWidth
@@ -391,7 +399,7 @@ export default function TaskGroupedList({
                   </Typography>
                   {snoozedCount > 0 && (
                     <Typography variant="body2" color="text.secondary">
-                      {snoozedCount} adiadas
+                      {snoozedCount} agendadas
                     </Typography>
                   )}
                 </Stack>
@@ -461,10 +469,10 @@ export default function TaskGroupedList({
         })}
       </Stack>
       <Dialog open={Boolean(dueDialogTask)} onClose={handleCloseDueDialog}>
-        <DialogTitle>Definir vencimento</DialogTitle>
+        <DialogTitle>Definir prazo</DialogTitle>
         <DialogContent>
           <DateField
-            label="Vencimento"
+            label="Prazo"
             value={dueValue}
             onCommit={(next) => setDueValue(next ?? '')}
             fullWidth

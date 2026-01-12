@@ -313,7 +313,7 @@ export default function ViewEditorDialog({
             label="Somente favoritos"
           />
           <Stack spacing={1}>
-            <Typography variant="subtitle2">Vencimento</Typography>
+            <Typography variant="subtitle2">Prazo</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <DateField
                 label="De"
@@ -335,7 +335,7 @@ export default function ViewEditorDialog({
                   onChange={(event) => setDueMissing(event.target.checked)}
                 />
               }
-              label="Sem vencimento"
+              label="Sem prazo"
             />
           </Stack>
           <TextField
@@ -360,7 +360,7 @@ export default function ViewEditorDialog({
               <MenuItem value="type">Tipo</MenuItem>
               <MenuItem value="path">Caminho</MenuItem>
               <MenuItem value="status">Status</MenuItem>
-              <MenuItem value="due">Vencimento</MenuItem>
+              <MenuItem value="due">Prazo</MenuItem>
               <MenuItem value="priority">Prioridade</MenuItem>
             </TextField>
             <TextField

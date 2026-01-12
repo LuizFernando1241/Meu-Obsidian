@@ -2,11 +2,16 @@ import Dexie, { type Table } from 'dexie';
 
 import type {
   AutoBackup,
+  AppMetaRow,
+  InboxItemRow,
+  IndexJobRow,
   Item,
   NoteSnapshot,
   PropertySchema,
   SavedView,
+  TaskIndexRow,
   Tombstone,
+  UserStateRow,
 } from './types';
 
 export class AppDB extends Dexie {
@@ -16,6 +21,11 @@ export class AppDB extends Dexie {
   snapshots!: Table<NoteSnapshot, string>;
   schemas!: Table<PropertySchema, string>;
   autoBackups!: Table<AutoBackup, string>;
+  tasks_index!: Table<TaskIndexRow, string>;
+  user_state!: Table<UserStateRow, [string, UserStateRow['space']]>;
+  inbox_items!: Table<InboxItemRow, string>;
+  app_meta!: Table<AppMetaRow, string>;
+  index_jobs!: Table<IndexJobRow, string>;
 
   constructor() {
     super('mecflux_personal_os');
@@ -337,6 +347,47 @@ export class AppDB extends Dexie {
       schemas: 'id, updatedAt, version',
       autoBackups: 'id, createdAt, bytes',
     });
+
+    this.version(12)
+      .stores({
+        items:
+          'id, nodeType, parentId, updatedAt, createdAt, title, favorite, rev, *tags, *linksTo',
+        tombstones: 'id, deletedAt, rev',
+        views: 'id, name, updatedAt, createdAt',
+        snapshots: 'id, nodeId, createdAt',
+        schemas: 'id, updatedAt, version',
+        autoBackups: 'id, createdAt, bytes',
+        tasks_index:
+          'taskId, userId, space, status, priority, scheduledDay, dueDay, projectId, areaId, noteId, folderId, updatedAt,' +
+          '[space+status], [space+scheduledDay], [space+dueDay], [space+projectId], [space+projectId+isNextAction]',
+        user_state: '[userId+space], userId, space, updatedAt',
+        inbox_items: 'id, userId, space, status, createdAt, [space+status]',
+        app_meta: 'key',
+        index_jobs: 'id, type, status, updatedAt',
+      })
+      .upgrade(async (tx) => {
+        const now = Date.now();
+        await tx.table('app_meta').put({
+          key: 'needsTaskIndexBuild',
+          value: true,
+          updatedAt: now,
+        });
+        await tx.table('app_meta').put({
+          key: 'lastTaskIndexBuildAt',
+          value: null,
+          updatedAt: now,
+        });
+        await tx.table('app_meta').put({
+          key: 'taskIndexBuildCheckpoint',
+          value: null,
+          updatedAt: now,
+        });
+        await tx.table('app_meta').put({
+          key: 'taskIndexBuildMode',
+          value: 'rebuild',
+          updatedAt: now,
+        });
+      });
   }
 }
 

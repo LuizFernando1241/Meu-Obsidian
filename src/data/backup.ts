@@ -5,8 +5,11 @@ import { getLastSyncAt } from '../sync/syncState';
 import { db } from './db';
 import { ensureDefaultSchema } from './repo';
 import type {
+  AppMetaRow,
   Block,
   BlockType,
+  InboxItemRow,
+  IndexJobRow,
   LegacyItemType,
   LegacyTaskFields,
   Node,
@@ -18,6 +21,8 @@ import type {
   SavedView,
   SavedViewQuery,
   SavedViewSort,
+  TaskIndexRow,
+  UserStateRow,
 } from './types';
 
 export type BackupMeta = {
@@ -33,6 +38,11 @@ export type BackupPayload = {
   views?: SavedView[];
   schemas?: PropertySchema[];
   schema?: PropertySchema;
+  tasks_index?: TaskIndexRow[];
+  user_state?: UserStateRow[];
+  inbox_items?: InboxItemRow[];
+  app_meta?: AppMetaRow[];
+  index_jobs?: IndexJobRow[];
 };
 
 export type VaultSyncMeta = {
@@ -53,6 +63,11 @@ export type VaultBackup = {
   views?: SavedView[];
   schemas?: PropertySchema[];
   schema?: PropertySchema;
+  tasks_index?: TaskIndexRow[];
+  user_state?: UserStateRow[];
+  inbox_items?: InboxItemRow[];
+  app_meta?: AppMetaRow[];
+  index_jobs?: IndexJobRow[];
   app: VaultAppMeta;
   sync?: VaultSyncMeta;
 };
@@ -377,6 +392,14 @@ const extractViewsFromPayload = (payload: unknown): SavedView[] => {
     .filter((view): view is SavedView => Boolean(view));
 };
 
+const extractTypedArray = <T>(payload: unknown, key: string): T[] => {
+  if (!isRecord(payload)) {
+    return [];
+  }
+  const raw = (payload as Record<string, unknown>)[key];
+  return Array.isArray(raw) ? (raw as T[]) : [];
+};
+
 const readSyncMeta = (): VaultSyncMeta | undefined => {
   if (typeof window === 'undefined') {
     return undefined;
@@ -467,8 +490,12 @@ const normalizeBlock = (block: Partial<Block>): Block => {
           (rawMeta as { recurrence?: unknown }).recurrence === 'monthly'
             ? (rawMeta as { recurrence?: 'weekly' | 'monthly' }).recurrence
             : undefined,
+        isNextAction:
+          typeof (rawMeta as { isNextAction?: unknown }).isNextAction === 'boolean'
+            ? (rawMeta as { isNextAction?: boolean }).isNextAction
+            : undefined,
       };
-      if (!next.priority && !next.status && !next.recurrence) {
+      if (!next.priority && !next.status && !next.recurrence && next.isNextAction === undefined) {
         return undefined;
       }
       return next;
@@ -711,12 +738,22 @@ export const buildVaultBackupPayload = async (): Promise<VaultBackup> => {
   const nodes = await db.items.toArray();
   const views = await db.views.toArray();
   const schemas = await db.schemas.toArray();
+  const tasks_index = await db.tasks_index.toArray();
+  const user_state = await db.user_state.toArray();
+  const inbox_items = await db.inbox_items.toArray();
+  const app_meta = await db.app_meta.toArray();
+  const index_jobs = await db.index_jobs.toArray();
   return {
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: Date.now(),
     nodes,
     views,
     schemas,
+    tasks_index,
+    user_state,
+    inbox_items,
+    app_meta,
+    index_jobs,
     app: {
       gitSha: GIT_SHA,
       buildTime: BUILD_TIME,
@@ -746,14 +783,37 @@ export const importVaultPayload = async (
   }
   const views = extractViewsFromPayload(payload);
   const schemas = normalizeSchemasFromPayload(payload);
+  const tasksIndex = extractTypedArray<TaskIndexRow>(payload, 'tasks_index');
+  const userState = extractTypedArray<UserStateRow>(payload, 'user_state');
+  const inboxItems = extractTypedArray<InboxItemRow>(payload, 'inbox_items');
+  const appMeta = extractTypedArray<AppMetaRow>(payload, 'app_meta');
+  const indexJobs = extractTypedArray<IndexJobRow>(payload, 'index_jobs');
+  const hasTasksIndex =
+    isRecord(payload) && Object.prototype.hasOwnProperty.call(payload, 'tasks_index');
 
   const items = extracted.nodes.map((item) => normalizeNode(item));
   if (mode === 'replace') {
-    await db.transaction('rw', db.items, db.tombstones, db.views, db.schemas, async () => {
+    await db.transaction(
+      'rw',
+      db.items,
+      db.tombstones,
+      db.views,
+      db.schemas,
+      db.tasks_index,
+      db.user_state,
+      db.inbox_items,
+      db.app_meta,
+      db.index_jobs,
+      async () => {
       await db.items.clear();
       await db.tombstones.clear();
       await db.views.clear();
       await db.schemas.clear();
+      await db.tasks_index.clear();
+      await db.user_state.clear();
+      await db.inbox_items.clear();
+      await db.app_meta.clear();
+      await db.index_jobs.clear();
       if (items.length > 0) {
         await db.items.bulkAdd(items);
       }
@@ -763,9 +823,34 @@ export const importVaultPayload = async (
       if (schemas.length > 0) {
         await db.schemas.bulkPut(schemas);
       }
+      if (tasksIndex.length > 0) {
+        await db.tasks_index.bulkPut(tasksIndex);
+      }
+      if (userState.length > 0) {
+        await db.user_state.bulkPut(userState);
+      }
+      if (inboxItems.length > 0) {
+        await db.inbox_items.bulkPut(inboxItems);
+      }
+      if (appMeta.length > 0) {
+        await db.app_meta.bulkPut(appMeta);
+      }
+      if (indexJobs.length > 0) {
+        await db.index_jobs.bulkPut(indexJobs);
+      }
     });
     if (schemas.length === 0 || !schemas.some((schema) => schema.id === 'global')) {
       await ensureDefaultSchema();
+    }
+    const now = Date.now();
+    if (!hasTasksIndex) {
+      await db.app_meta.put({ key: 'needsTaskIndexBuild', value: true, updatedAt: now });
+      await db.app_meta.put({ key: 'taskIndexBuildMode', value: 'rebuild', updatedAt: now });
+      await db.app_meta.put({ key: 'taskIndexBuildCheckpoint', value: null, updatedAt: now });
+    } else {
+      await db.app_meta.put({ key: 'needsTaskIndexBuild', value: false, updatedAt: now });
+      await db.app_meta.put({ key: 'taskIndexBuildMode', value: 'rebuild', updatedAt: now });
+      await db.app_meta.put({ key: 'taskIndexBuildCheckpoint', value: null, updatedAt: now });
     }
     return { mode: 'replace', imported: items.length };
   }
@@ -818,7 +903,106 @@ export const importVaultPayload = async (
     }
   });
 
-  await db.transaction('rw', db.items, db.views, db.schemas, async () => {
+  const taskIds = tasksIndex.map((task) => task.taskId);
+  const existingTasks = taskIds.length > 0 ? await db.tasks_index.bulkGet(taskIds) : [];
+  const tasksToAdd: TaskIndexRow[] = [];
+  const tasksToPut: TaskIndexRow[] = [];
+
+  tasksIndex.forEach((task, index) => {
+    const current = existingTasks[index];
+    if (!current) {
+      tasksToAdd.push(task);
+      return;
+    }
+    if ((task.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      tasksToPut.push(task);
+    }
+  });
+
+  const userStateKeys = userState.map(
+    (row) => [row.userId, row.space] as [string, UserStateRow['space']],
+  );
+  const existingUserState =
+    userStateKeys.length > 0 ? await db.user_state.bulkGet(userStateKeys) : [];
+  const userStateToAdd: UserStateRow[] = [];
+  const userStateToPut: UserStateRow[] = [];
+
+  userState.forEach((row, index) => {
+    const current = existingUserState[index];
+    if (!current) {
+      userStateToAdd.push(row);
+      return;
+    }
+    if ((row.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      userStateToPut.push(row);
+    }
+  });
+
+  const inboxIds = inboxItems.map((item) => item.id);
+  const existingInbox = inboxIds.length > 0 ? await db.inbox_items.bulkGet(inboxIds) : [];
+  const inboxToAdd: InboxItemRow[] = [];
+  const inboxToPut: InboxItemRow[] = [];
+
+  const inboxTimestamp = (item?: InboxItemRow) =>
+    item ? item.processedAt ?? item.createdAt : 0;
+
+  inboxItems.forEach((item, index) => {
+    const current = existingInbox[index];
+    if (!current) {
+      inboxToAdd.push(item);
+      return;
+    }
+    if (inboxTimestamp(item) > inboxTimestamp(current)) {
+      inboxToPut.push(item);
+    }
+  });
+
+  const metaKeys = appMeta.map((meta) => meta.key);
+  const existingMeta = metaKeys.length > 0 ? await db.app_meta.bulkGet(metaKeys) : [];
+  const metaToAdd: AppMetaRow[] = [];
+  const metaToPut: AppMetaRow[] = [];
+
+  appMeta.forEach((meta, index) => {
+    const current = existingMeta[index];
+    if (!current) {
+      metaToAdd.push(meta);
+      return;
+    }
+    const metaUpdatedAt = typeof meta.updatedAt === 'number' ? meta.updatedAt : 0;
+    const currentUpdatedAt =
+      typeof current.updatedAt === 'number' ? current.updatedAt : 0;
+    if (metaUpdatedAt > currentUpdatedAt) {
+      metaToPut.push(meta);
+    }
+  });
+
+  const jobIds = indexJobs.map((job) => job.id);
+  const existingJobs = jobIds.length > 0 ? await db.index_jobs.bulkGet(jobIds) : [];
+  const jobsToAdd: IndexJobRow[] = [];
+  const jobsToPut: IndexJobRow[] = [];
+
+  indexJobs.forEach((job, index) => {
+    const current = existingJobs[index];
+    if (!current) {
+      jobsToAdd.push(job);
+      return;
+    }
+    if ((job.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      jobsToPut.push(job);
+    }
+  });
+
+  await db.transaction(
+    'rw',
+    db.items,
+    db.views,
+    db.schemas,
+    db.tasks_index,
+    db.user_state,
+    db.inbox_items,
+    db.app_meta,
+    db.index_jobs,
+    async () => {
     if (toAdd.length > 0) {
       await db.items.bulkAdd(toAdd);
     }
@@ -837,8 +1021,43 @@ export const importVaultPayload = async (
     if (schemasToPut.length > 0) {
       await db.schemas.bulkPut(schemasToPut);
     }
+    if (tasksToAdd.length > 0) {
+      await db.tasks_index.bulkAdd(tasksToAdd);
+    }
+    if (tasksToPut.length > 0) {
+      await db.tasks_index.bulkPut(tasksToPut);
+    }
+    if (userStateToAdd.length > 0) {
+      await db.user_state.bulkAdd(userStateToAdd);
+    }
+    if (userStateToPut.length > 0) {
+      await db.user_state.bulkPut(userStateToPut);
+    }
+    if (inboxToAdd.length > 0) {
+      await db.inbox_items.bulkAdd(inboxToAdd);
+    }
+    if (inboxToPut.length > 0) {
+      await db.inbox_items.bulkPut(inboxToPut);
+    }
+    if (metaToAdd.length > 0) {
+      await db.app_meta.bulkAdd(metaToAdd);
+    }
+    if (metaToPut.length > 0) {
+      await db.app_meta.bulkPut(metaToPut);
+    }
+    if (jobsToAdd.length > 0) {
+      await db.index_jobs.bulkAdd(jobsToAdd);
+    }
+    if (jobsToPut.length > 0) {
+      await db.index_jobs.bulkPut(jobsToPut);
+    }
   });
   await ensureDefaultSchema();
+  const now = Date.now();
+  const nextMode = hasTasksIndex ? 'repair' : 'rebuild';
+  await db.app_meta.put({ key: 'needsTaskIndexBuild', value: true, updatedAt: now });
+  await db.app_meta.put({ key: 'taskIndexBuildMode', value: nextMode, updatedAt: now });
+  await db.app_meta.put({ key: 'taskIndexBuildCheckpoint', value: null, updatedAt: now });
 
   return {
     mode: 'merge',
@@ -882,13 +1101,28 @@ export const exportAll = async (): Promise<BackupPayload> => {
   const items = await db.items.toArray();
   const views = await db.views.toArray();
   const schemas = await db.schemas.toArray();
+  const tasks_index = await db.tasks_index.toArray();
+  const user_state = await db.user_state.toArray();
+  const inbox_items = await db.inbox_items.toArray();
+  const app_meta = await db.app_meta.toArray();
+  const index_jobs = await db.index_jobs.toArray();
   const meta: BackupMeta = {
     appName: APP_NAME,
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
     itemCount: items.length,
   };
-  return { meta, items, views, schemas };
+  return {
+    meta,
+    items,
+    views,
+    schemas,
+    tasks_index,
+    user_state,
+    inbox_items,
+    app_meta,
+    index_jobs,
+  };
 };
 
 export const downloadJson = (data: unknown, filename: string) => {
@@ -909,11 +1143,32 @@ export const importReplaceAll = async (payload: BackupPayload) => {
   const items = payload.items.map((item) => normalizeNode(item));
   const views = extractViewsFromPayload(payload);
   const schemas = normalizeSchemasFromPayload(payload);
-  await db.transaction('rw', db.items, db.tombstones, db.views, db.schemas, async () => {
+  const tasksIndex = Array.isArray(payload.tasks_index) ? payload.tasks_index : [];
+  const userState = Array.isArray(payload.user_state) ? payload.user_state : [];
+  const inboxItems = Array.isArray(payload.inbox_items) ? payload.inbox_items : [];
+  const appMeta = Array.isArray(payload.app_meta) ? payload.app_meta : [];
+  const indexJobs = Array.isArray(payload.index_jobs) ? payload.index_jobs : [];
+  await db.transaction(
+    'rw',
+    db.items,
+    db.tombstones,
+    db.views,
+    db.schemas,
+    db.tasks_index,
+    db.user_state,
+    db.inbox_items,
+    db.app_meta,
+    db.index_jobs,
+    async () => {
     await db.items.clear();
     await db.tombstones.clear();
     await db.views.clear();
     await db.schemas.clear();
+    await db.tasks_index.clear();
+    await db.user_state.clear();
+    await db.inbox_items.clear();
+    await db.app_meta.clear();
+    await db.index_jobs.clear();
     if (items.length > 0) {
       await db.items.bulkAdd(items);
     }
@@ -923,9 +1178,34 @@ export const importReplaceAll = async (payload: BackupPayload) => {
     if (schemas.length > 0) {
       await db.schemas.bulkPut(schemas);
     }
+    if (tasksIndex.length > 0) {
+      await db.tasks_index.bulkPut(tasksIndex);
+    }
+    if (userState.length > 0) {
+      await db.user_state.bulkPut(userState);
+    }
+    if (inboxItems.length > 0) {
+      await db.inbox_items.bulkPut(inboxItems);
+    }
+    if (appMeta.length > 0) {
+      await db.app_meta.bulkPut(appMeta);
+    }
+    if (indexJobs.length > 0) {
+      await db.index_jobs.bulkPut(indexJobs);
+    }
   });
   if (schemas.length === 0 || !schemas.some((schema) => schema.id === 'global')) {
     await ensureDefaultSchema();
+  }
+  const now = Date.now();
+  if (!payload.tasks_index) {
+    await db.app_meta.put({ key: 'needsTaskIndexBuild', value: true, updatedAt: now });
+    await db.app_meta.put({ key: 'taskIndexBuildMode', value: 'rebuild', updatedAt: now });
+    await db.app_meta.put({ key: 'taskIndexBuildCheckpoint', value: null, updatedAt: now });
+  } else {
+    await db.app_meta.put({ key: 'needsTaskIndexBuild', value: false, updatedAt: now });
+    await db.app_meta.put({ key: 'taskIndexBuildMode', value: 'rebuild', updatedAt: now });
+    await db.app_meta.put({ key: 'taskIndexBuildCheckpoint', value: null, updatedAt: now });
   }
   return { imported: items.length };
 };
@@ -934,6 +1214,11 @@ export const importMerge = async (payload: BackupPayload) => {
   const items = payload.items.map((item) => normalizeNode(item));
   const views = extractViewsFromPayload(payload);
   const schemas = normalizeSchemasFromPayload(payload);
+  const tasksIndex = Array.isArray(payload.tasks_index) ? payload.tasks_index : [];
+  const userState = Array.isArray(payload.user_state) ? payload.user_state : [];
+  const inboxItems = Array.isArray(payload.inbox_items) ? payload.inbox_items : [];
+  const appMeta = Array.isArray(payload.app_meta) ? payload.app_meta : [];
+  const indexJobs = Array.isArray(payload.index_jobs) ? payload.index_jobs : [];
   const ids = items.map((item) => item.id);
   const existing = await db.items.bulkGet(ids);
   const toAdd: Node[] = [];
@@ -982,7 +1267,106 @@ export const importMerge = async (payload: BackupPayload) => {
     }
   });
 
-  await db.transaction('rw', db.items, db.views, db.schemas, async () => {
+  const taskIds = tasksIndex.map((task) => task.taskId);
+  const existingTasks = taskIds.length > 0 ? await db.tasks_index.bulkGet(taskIds) : [];
+  const tasksToAdd: TaskIndexRow[] = [];
+  const tasksToPut: TaskIndexRow[] = [];
+
+  tasksIndex.forEach((task, index) => {
+    const current = existingTasks[index];
+    if (!current) {
+      tasksToAdd.push(task);
+      return;
+    }
+    if ((task.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      tasksToPut.push(task);
+    }
+  });
+
+  const userStateKeys = userState.map(
+    (row) => [row.userId, row.space] as [string, UserStateRow['space']],
+  );
+  const existingUserState =
+    userStateKeys.length > 0 ? await db.user_state.bulkGet(userStateKeys) : [];
+  const userStateToAdd: UserStateRow[] = [];
+  const userStateToPut: UserStateRow[] = [];
+
+  userState.forEach((row, index) => {
+    const current = existingUserState[index];
+    if (!current) {
+      userStateToAdd.push(row);
+      return;
+    }
+    if ((row.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      userStateToPut.push(row);
+    }
+  });
+
+  const inboxIds = inboxItems.map((item) => item.id);
+  const existingInbox = inboxIds.length > 0 ? await db.inbox_items.bulkGet(inboxIds) : [];
+  const inboxToAdd: InboxItemRow[] = [];
+  const inboxToPut: InboxItemRow[] = [];
+
+  const inboxTimestamp = (item?: InboxItemRow) =>
+    item ? item.processedAt ?? item.createdAt : 0;
+
+  inboxItems.forEach((item, index) => {
+    const current = existingInbox[index];
+    if (!current) {
+      inboxToAdd.push(item);
+      return;
+    }
+    if (inboxTimestamp(item) > inboxTimestamp(current)) {
+      inboxToPut.push(item);
+    }
+  });
+
+  const metaKeys = appMeta.map((meta) => meta.key);
+  const existingMeta = metaKeys.length > 0 ? await db.app_meta.bulkGet(metaKeys) : [];
+  const metaToAdd: AppMetaRow[] = [];
+  const metaToPut: AppMetaRow[] = [];
+
+  appMeta.forEach((meta, index) => {
+    const current = existingMeta[index];
+    if (!current) {
+      metaToAdd.push(meta);
+      return;
+    }
+    const metaUpdatedAt = typeof meta.updatedAt === 'number' ? meta.updatedAt : 0;
+    const currentUpdatedAt =
+      typeof current.updatedAt === 'number' ? current.updatedAt : 0;
+    if (metaUpdatedAt > currentUpdatedAt) {
+      metaToPut.push(meta);
+    }
+  });
+
+  const jobIds = indexJobs.map((job) => job.id);
+  const existingJobs = jobIds.length > 0 ? await db.index_jobs.bulkGet(jobIds) : [];
+  const jobsToAdd: IndexJobRow[] = [];
+  const jobsToPut: IndexJobRow[] = [];
+
+  indexJobs.forEach((job, index) => {
+    const current = existingJobs[index];
+    if (!current) {
+      jobsToAdd.push(job);
+      return;
+    }
+    if ((job.updatedAt ?? 0) > (current.updatedAt ?? 0)) {
+      jobsToPut.push(job);
+    }
+  });
+
+  await db.transaction(
+    'rw',
+    db.items,
+    db.views,
+    db.schemas,
+    db.tasks_index,
+    db.user_state,
+    db.inbox_items,
+    db.app_meta,
+    db.index_jobs,
+    async () => {
     if (toAdd.length > 0) {
       await db.items.bulkAdd(toAdd);
     }
@@ -1001,8 +1385,43 @@ export const importMerge = async (payload: BackupPayload) => {
     if (schemasToPut.length > 0) {
       await db.schemas.bulkPut(schemasToPut);
     }
+    if (tasksToAdd.length > 0) {
+      await db.tasks_index.bulkAdd(tasksToAdd);
+    }
+    if (tasksToPut.length > 0) {
+      await db.tasks_index.bulkPut(tasksToPut);
+    }
+    if (userStateToAdd.length > 0) {
+      await db.user_state.bulkAdd(userStateToAdd);
+    }
+    if (userStateToPut.length > 0) {
+      await db.user_state.bulkPut(userStateToPut);
+    }
+    if (inboxToAdd.length > 0) {
+      await db.inbox_items.bulkAdd(inboxToAdd);
+    }
+    if (inboxToPut.length > 0) {
+      await db.inbox_items.bulkPut(inboxToPut);
+    }
+    if (metaToAdd.length > 0) {
+      await db.app_meta.bulkAdd(metaToAdd);
+    }
+    if (metaToPut.length > 0) {
+      await db.app_meta.bulkPut(metaToPut);
+    }
+    if (jobsToAdd.length > 0) {
+      await db.index_jobs.bulkAdd(jobsToAdd);
+    }
+    if (jobsToPut.length > 0) {
+      await db.index_jobs.bulkPut(jobsToPut);
+    }
   });
   await ensureDefaultSchema();
+  const now = Date.now();
+  const nextMode = payload.tasks_index ? 'repair' : 'rebuild';
+  await db.app_meta.put({ key: 'needsTaskIndexBuild', value: true, updatedAt: now });
+  await db.app_meta.put({ key: 'taskIndexBuildMode', value: nextMode, updatedAt: now });
+  await db.app_meta.put({ key: 'taskIndexBuildCheckpoint', value: null, updatedAt: now });
 
   return { added: toAdd.length, updated: toPut.length };
 };

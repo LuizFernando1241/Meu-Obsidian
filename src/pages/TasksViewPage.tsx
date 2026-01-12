@@ -22,9 +22,10 @@ import {
   updateChecklistMeta,
 } from '../data/repo';
 import type { NoteNode } from '../data/types';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { addDaysISO, getTodayISO } from '../tasks/date';
-import { buildTaskIndex, type IndexedTask } from '../tasks/taskIndex';
-import { getTaskNotePath } from '../tasks/taskPath';
+import type { IndexedTask } from '../tasks/taskIndex';
+import { mapTaskIndexRow } from '../tasks/taskIndexView';
 import { buildPathCache } from '../vault/pathCache';
 
 type DueFilter = 'all' | 'none' | 'has' | 'overdue' | 'today' | 'next7';
@@ -38,9 +39,9 @@ const PRIORITY_ORDER: Record<string, number> = {
   P3: 1,
 };
 
-const compareByEffectiveDue = (left: IndexedTask, right: IndexedTask) => {
-  const leftDue = left.effectiveDue ?? null;
-  const rightDue = right.effectiveDue ?? null;
+const compareByDueDay = (left: IndexedTask, right: IndexedTask) => {
+  const leftDue = left.due ?? null;
+  const rightDue = right.due ?? null;
   if (!leftDue && !rightDue) {
     const noteCompare = left.noteTitle.localeCompare(right.noteTitle);
     if (noteCompare !== 0) {
@@ -72,6 +73,7 @@ const compareByEffectiveDue = (left: IndexedTask, right: IndexedTask) => {
 export default function TasksViewPage() {
   const navigate = useNavigate();
   const notifier = useNotifier();
+  const space = useSpaceStore((state) => state.space);
 
   const allNodes = useLiveQuery(() => db.items.toArray(), []) ?? [];
   const nodes = React.useMemo(() => filterActiveNodes(allNodes), [allNodes]);
@@ -79,26 +81,37 @@ export default function TasksViewPage() {
     () => nodes.filter((node): node is NoteNode => node.nodeType === 'note'),
     [nodes],
   );
+  const notesById = React.useMemo(
+    () => new Map(notes.map((note) => [note.id, note])),
+    [notes],
+  );
   const pathCache = React.useMemo(() => buildPathCache(nodes), [nodes]);
+  const tasksIndex =
+    useLiveQuery(
+      () => db.tasks_index.where('space').equals(space).toArray(),
+      [space],
+    ) ?? [];
 
   const [query, setQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = React.useState<PriorityFilter>('all');
   const [dueFilter, setDueFilter] = React.useState<DueFilter>('all');
-  const [includeSnoozed, setIncludeSnoozed] = React.useState(false);
+  const [includeScheduled, setIncludeScheduled] = React.useState(false);
   const [showCompleted, setShowCompleted] = React.useState(false);
   const [groupMode, setGroupMode] = React.useState<GroupMode>('path');
 
   const todayISO = getTodayISO();
   const nextWeekISO = addDaysISO(todayISO, 7);
-  const tasks = React.useMemo(
-    () =>
-      buildTaskIndex(notes as NoteNode[], todayISO).map((task) => ({
-        ...task,
-        notePath: getTaskNotePath(pathCache.get(task.noteId)),
-      })),
-    [notes, pathCache, todayISO],
-  );
+  const tasks = React.useMemo(() => {
+    return tasksIndex.map((row) =>
+      mapTaskIndexRow(
+        row,
+        notesById.get(row.noteId),
+        pathCache.get(row.noteId),
+        todayISO,
+      ),
+    );
+  }, [notesById, pathCache, tasksIndex, todayISO]);
 
   const openTasks = React.useMemo(
     () => tasks.filter((task) => !task.checked),
@@ -108,7 +121,7 @@ export default function TasksViewPage() {
   const filtered = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     let next = showCompleted ? tasks : openTasks;
-    if (!includeSnoozed) {
+    if (!includeScheduled) {
       next = next.filter((task) => !task.isSnoozed);
     }
     if (normalizedQuery) {
@@ -126,33 +139,33 @@ export default function TasksViewPage() {
     }
     if (dueFilter !== 'all') {
       next = next.filter((task) => {
-        const effectiveDue = task.effectiveDue ?? null;
+        const dueDay = task.due ?? null;
         if (dueFilter === 'none') {
-          return !effectiveDue;
+          return !dueDay;
         }
         if (dueFilter === 'has') {
-          return Boolean(effectiveDue);
+          return Boolean(dueDay);
         }
         if (dueFilter === 'overdue') {
-          return Boolean(effectiveDue && effectiveDue < todayISO);
+          return Boolean(dueDay && dueDay < todayISO);
         }
         if (dueFilter === 'today') {
-          return effectiveDue === todayISO;
+          return dueDay === todayISO;
         }
         if (dueFilter === 'next7') {
           return Boolean(
-            effectiveDue && effectiveDue >= todayISO && effectiveDue <= nextWeekISO,
+            dueDay && dueDay >= todayISO && dueDay <= nextWeekISO,
           );
         }
         return true;
       });
     }
     const sorted = [...next];
-    sorted.sort(compareByEffectiveDue);
+    sorted.sort(compareByDueDay);
     return sorted;
   }, [
     dueFilter,
-    includeSnoozed,
+    includeScheduled,
     nextWeekISO,
     openTasks,
     priorityFilter,
@@ -177,7 +190,7 @@ export default function TasksViewPage() {
       await setChecklistDue(task.noteId, task.blockId, due);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir vencimento: ${message}`);
+      notifier.error(`Erro ao definir prazo: ${message}`);
     }
   };
 
@@ -222,7 +235,7 @@ export default function TasksViewPage() {
       await setChecklistSnooze(task.noteId, task.blockId, snoozedUntil);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao definir adiamento: ${message}`);
+      notifier.error(`Erro ao definir agendamento: ${message}`);
     }
   };
 
@@ -231,7 +244,7 @@ export default function TasksViewPage() {
       await clearChecklistSnooze(task.noteId, task.blockId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      notifier.error(`Erro ao limpar adiamento: ${message}`);
+      notifier.error(`Erro ao limpar agendamento: ${message}`);
     }
   };
 
@@ -239,7 +252,7 @@ export default function TasksViewPage() {
     navigate(`/item/${noteId}`, { state: { highlightBlockId: blockId } });
   };
 
-  const todayCount = openTasks.filter((task) => task.effectiveDue === todayISO).length;
+  const todayCount = openTasks.filter((task) => task.snoozedUntil === todayISO).length;
 
   return (
     <Stack spacing={3}>
@@ -291,14 +304,14 @@ export default function TasksViewPage() {
         </TextField>
         <TextField
           select
-          label="Vencimento"
+          label="Prazo"
           value={dueFilter}
           onChange={(event) => setDueFilter(event.target.value as DueFilter)}
           sx={{ minWidth: 200 }}
         >
           <MenuItem value="all">Todos</MenuItem>
-          <MenuItem value="none">Sem vencimento</MenuItem>
-          <MenuItem value="has">Com vencimento</MenuItem>
+          <MenuItem value="none">Sem prazo</MenuItem>
+          <MenuItem value="has">Com prazo</MenuItem>
           <MenuItem value="overdue">Atrasadas</MenuItem>
           <MenuItem value="today">Hoje</MenuItem>
           <MenuItem value="next7">Proximos 7 dias</MenuItem>
@@ -317,12 +330,12 @@ export default function TasksViewPage() {
         <FormControlLabel
           control={
             <Checkbox
-              checked={includeSnoozed}
-              onChange={(event) => setIncludeSnoozed(event.target.checked)}
+              checked={includeScheduled}
+              onChange={(event) => setIncludeScheduled(event.target.checked)}
             />
           }
-          label="Incluir adiadas"
-        />
+          label="Incluir agendadas"
+          />
         <FormControlLabel
           control={
             <Checkbox

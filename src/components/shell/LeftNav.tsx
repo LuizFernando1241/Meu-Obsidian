@@ -1,5 +1,6 @@
 import {
   Box,
+  Collapse,
   Divider,
   Drawer,
   IconButton,
@@ -18,6 +19,8 @@ import {
   Add,
   ChevronLeft,
   ChevronRight,
+  ExpandLess,
+  ExpandMore,
   MoreVert,
   ViewList,
 } from '@mui/icons-material';
@@ -25,16 +28,16 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 
-import { GIT_SHA } from '../app/buildInfo';
-import { NAV_ROUTES } from '../app/routes';
-import { db } from '../data/db';
-import { deleteView, upsertView } from '../data/repo';
-import type { SavedView } from '../data/types';
-import { sortViews } from '../data/sortViews';
-import VaultExplorer from './VaultExplorer';
-import ConfirmDialog from './ConfirmDialog';
-import { useNotifier } from './Notifier';
-import ViewEditorDialog from './dialogs/ViewEditorDialog';
+import { GIT_SHA } from '../../app/buildInfo';
+import { NAV_ROUTES } from '../../app/routes';
+import { db } from '../../data/db';
+import { deleteView, upsertView } from '../../data/repo';
+import type { SavedView } from '../../data/types';
+import { sortViews } from '../../data/sortViews';
+import ConfirmDialog from '../ConfirmDialog';
+import { useNotifier } from '../Notifier';
+import ViewEditorDialog from '../dialogs/ViewEditorDialog';
+import VaultTree from './VaultTree';
 
 type LeftNavProps = {
   isMobile: boolean;
@@ -46,9 +49,43 @@ type LeftNavProps = {
   collapsedWidth: number;
 };
 
-const NAV_ORDER_KEY = 'nav_routes_order';
-const BASE_NAV_ITEMS = NAV_ROUTES.filter((route) => route.showInNav !== false);
+const NAV_ORDER_KEY = 'nav_routes_order_v2';
+const ADVANCED_OPEN_KEY = 'nav_advanced_open';
 const versionLabel = `v-${GIT_SHA}`;
+
+const PRIMARY_NAV_KEYS = [
+  'focus',
+  'today',
+  'week',
+  'backlog',
+  'inbox',
+  'projects',
+  'notes',
+  'review',
+];
+
+const ADVANCED_NAV_KEYS = ['tasks', 'overdue', 'tags', 'graph', 'trash', 'settings', 'help'];
+
+const readStored = (key: string) => {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const raw = window.localStorage.getItem(key);
+  if (raw === '1') {
+    return true;
+  }
+  if (raw === '0') {
+    return false;
+  }
+  return undefined;
+};
+
+const writeStored = (key: string, value: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(key, value ? '1' : '0');
+};
 
 const readNavOrder = () => {
   if (typeof window === 'undefined') {
@@ -69,9 +106,9 @@ const readNavOrder = () => {
   }
 };
 
-const applyNavOrder = (items: typeof BASE_NAV_ITEMS, order: string[]) => {
+const applyNavOrder = (items: typeof NAV_ROUTES, order: string[]) => {
   const byKey = new Map(items.map((item) => [item.key, item]));
-  const ordered: typeof BASE_NAV_ITEMS = [];
+  const ordered: typeof NAV_ROUTES = [];
   order.forEach((key) => {
     const item = byKey.get(key);
     if (item) {
@@ -85,6 +122,11 @@ const applyNavOrder = (items: typeof BASE_NAV_ITEMS, order: string[]) => {
 
 const areArraysEqual = (left: string[], right: string[]) =>
   left.length === right.length && left.every((value, index) => value === right[index]);
+
+const buildNavMap = () => new Map(NAV_ROUTES.map((route) => [route.key, route]));
+
+const buildNavList = (keys: string[], byKey: Map<string, (typeof NAV_ROUTES)[number]>) =>
+  keys.map((key) => byKey.get(key)).filter(Boolean) as (typeof NAV_ROUTES)[number][];
 
 export default function LeftNav({
   isMobile,
@@ -103,6 +145,7 @@ export default function LeftNav({
     () => new Map(views.map((view) => [view.id, view])),
     [views],
   );
+  const navByKey = React.useMemo(() => buildNavMap(), []);
   const [viewDialogOpen, setViewDialogOpen] = React.useState(false);
   const [editingView, setEditingView] = React.useState<SavedView | null>(null);
   const [viewMenuAnchor, setViewMenuAnchor] = React.useState<null | HTMLElement>(null);
@@ -114,20 +157,36 @@ export default function LeftNav({
   const [dropNavPosition, setDropNavPosition] = React.useState<'above' | 'below' | null>(
     null,
   );
+  const [advancedOpen, setAdvancedOpen] = React.useState(
+    () => readStored(ADVANCED_OPEN_KEY) ?? false,
+  );
+
+  const primaryItems = React.useMemo(
+    () => buildNavList(PRIMARY_NAV_KEYS, navByKey),
+    [navByKey],
+  );
+  const advancedItems = React.useMemo(
+    () => buildNavList(ADVANCED_NAV_KEYS, navByKey),
+    [navByKey],
+  );
 
   const navItems = React.useMemo(
-    () => applyNavOrder(BASE_NAV_ITEMS, navOrder),
-    [navOrder],
+    () => applyNavOrder(primaryItems, navOrder),
+    [navOrder, primaryItems],
   );
 
   React.useEffect(() => {
-    const normalizedOrder = applyNavOrder(BASE_NAV_ITEMS, navOrder).map(
-      (item) => item.key,
-    );
+    if (collapsed) {
+      setAdvancedOpen(false);
+    }
+  }, [collapsed]);
+
+  React.useEffect(() => {
+    const normalizedOrder = applyNavOrder(primaryItems, navOrder).map((item) => item.key);
     if (!areArraysEqual(normalizedOrder, navOrder)) {
       setNavOrder(normalizedOrder);
     }
-  }, [navOrder]);
+  }, [navOrder, primaryItems]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') {
@@ -135,6 +194,10 @@ export default function LeftNav({
     }
     localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navOrder));
   }, [navOrder]);
+
+  React.useEffect(() => {
+    writeStored(ADVANCED_OPEN_KEY, advancedOpen);
+  }, [advancedOpen]);
 
   const handleNavigate = () => {
     if (isMobile) {
@@ -289,186 +352,222 @@ export default function LeftNav({
     [clearDragState, getDragNavKey, navItems],
   );
 
+  const renderNavList = (
+    items: (typeof NAV_ROUTES)[number][],
+    {
+      draggable,
+    }: {
+      draggable?: boolean;
+    } = {},
+  ) => (
+    <List
+      onDragOver={(event) => {
+        if (!draggable || !draggingNavKey) {
+          return;
+        }
+        event.preventDefault();
+      }}
+      onDrop={draggable ? handleNavListDrop : undefined}
+    >
+      {items.map((item) => {
+        const Icon = item.icon;
+        const isDropTarget = dropNavKey === item.key;
+        const showIndicator =
+          draggable && isDropTarget && (dropNavPosition === 'above' || dropNavPosition === 'below');
+        const indicatorPosition = dropNavPosition === 'below' ? 'bottom' : 'top';
+        const button = (
+          <ListItemButton
+            key={item.key}
+            component={NavLink}
+            to={item.path}
+            end={item.path === '/'}
+            onClick={handleNavigate}
+            draggable={draggable}
+            onDragStart={draggable ? (event) => handleNavDragStart(event, item.key) : undefined}
+            onDragEnd={draggable ? clearDragState : undefined}
+            onDragOver={draggable ? (event) => handleNavDragOver(event, item.key) : undefined}
+            onDrop={draggable ? (event) => handleNavDrop(event, item.key) : undefined}
+            sx={{
+              minHeight: 48,
+              px: collapsed ? 1.5 : 2.5,
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              '&.active, &[aria-current="page"]': {
+                bgcolor: 'action.selected',
+                '& .MuiListItemIcon-root': { color: 'text.primary' },
+              },
+            }}
+          >
+            <ListItemIcon
+              sx={{
+                minWidth: 0,
+                mr: collapsed ? 0 : 2,
+                justifyContent: 'center',
+              }}
+            >
+              {Icon ? <Icon /> : null}
+            </ListItemIcon>
+            <ListItemText
+              primary={item.label}
+              primaryTypographyProps={{ noWrap: true }}
+              sx={{ opacity: collapsed ? 0 : 1 }}
+            />
+          </ListItemButton>
+        );
+
+        return collapsed ? (
+          <ListItem key={item.key} disablePadding sx={{ position: 'relative' }}>
+            {showIndicator && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  left: collapsed ? 8 : 16,
+                  right: 12,
+                  height: 2,
+                  bgcolor: 'primary.main',
+                  borderRadius: 1,
+                  [indicatorPosition]: 0,
+                }}
+              />
+            )}
+            <Tooltip title={item.label} placement="right">
+              {button}
+            </Tooltip>
+          </ListItem>
+        ) : (
+          <ListItem key={item.key} disablePadding sx={{ position: 'relative' }}>
+            {showIndicator && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  left: 16,
+                  right: 12,
+                  height: 2,
+                  bgcolor: 'primary.main',
+                  borderRadius: 1,
+                  [indicatorPosition]: 0,
+                }}
+              />
+            )}
+            {button}
+          </ListItem>
+        );
+      })}
+    </List>
+  );
+
   const drawerContent = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Toolbar />
       <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
         {!collapsed && (
-          <VaultExplorer isMobile={isMobile} onNavigate={handleNavigate} />
+          <VaultTree isMobile={isMobile} onNavigate={handleNavigate} />
         )}
         <Divider />
-        <List
-          onDragOver={(event) => {
-            if (!draggingNavKey) {
-              return;
-            }
-            event.preventDefault();
-          }}
-          onDrop={handleNavListDrop}
-        >
+        {!collapsed && (
+          <Typography
+            variant="overline"
+            sx={{ px: 2.5, py: 1, display: 'block', color: 'text.secondary' }}
+          >
+            Navegacao
+          </Typography>
+        )}
+        {renderNavList(navItems, { draggable: true })}
+        <Divider />
+        <List disablePadding>
+          <ListItemButton
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+            sx={{
+              minHeight: 48,
+              px: collapsed ? 1.5 : 2.5,
+              justifyContent: collapsed ? 'center' : 'space-between',
+            }}
+          >
+            {!collapsed && (
+              <ListItemText primary="Avancado" primaryTypographyProps={{ noWrap: true }} />
+            )}
+            {collapsed ? (
+              <Tooltip title="Avancado" placement="right">
+                <Box>{advancedOpen ? <ExpandLess /> : <ExpandMore />}</Box>
+              </Tooltip>
+            ) : (
+              <>{advancedOpen ? <ExpandLess /> : <ExpandMore />}</>
+            )}
+          </ListItemButton>
+        </List>
+        <Collapse in={advancedOpen} timeout="auto" unmountOnExit>
+          {renderNavList(advancedItems)}
           {!collapsed && (
-            <Typography
-              variant="overline"
-              sx={{ px: 2.5, py: 1, display: 'block', color: 'text.secondary' }}
-            >
-              Visoes
-            </Typography>
-          )}
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isDropTarget = dropNavKey === item.key;
-            const showIndicator =
-              isDropTarget && (dropNavPosition === 'above' || dropNavPosition === 'below');
-            const indicatorPosition = dropNavPosition === 'below' ? 'bottom' : 'top';
-            const button = (
-              <ListItemButton
-                key={item.key}
-                component={NavLink}
-                to={item.path}
-                end={item.path === '/'}
-                onClick={handleNavigate}
-                draggable
-                onDragStart={(event) => handleNavDragStart(event, item.key)}
-                onDragEnd={clearDragState}
-                onDragOver={(event) => handleNavDragOver(event, item.key)}
-                onDrop={(event) => handleNavDrop(event, item.key)}
+            <>
+              <Divider />
+              <Box
                 sx={{
-                  minHeight: 48,
-                  px: collapsed ? 1.5 : 2.5,
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  '&.active, &[aria-current="page"]': {
-                    bgcolor: 'action.selected',
-                    '& .MuiListItemIcon-root': { color: 'text.primary' },
-                  },
+                  px: 2.5,
+                  py: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
-                <ListItemIcon
-                  sx={{
-                    minWidth: 0,
-                    mr: collapsed ? 0 : 2,
-                    justifyContent: 'center',
-                  }}
+                <Typography variant="overline" color="text.secondary">
+                  Minhas visoes
+                </Typography>
+                <IconButton
+                  size="small"
+                  aria-label="Criar visao"
+                  onClick={() => handleOpenViewDialog(null)}
                 >
-                  {Icon ? <Icon /> : null}
-                </ListItemIcon>
-                <ListItemText
-                  primary={item.label}
-                  primaryTypographyProps={{ noWrap: true }}
-                  sx={{ opacity: collapsed ? 0 : 1 }}
-                />
-              </ListItemButton>
-            );
-
-            return collapsed ? (
-              <ListItem key={item.key} disablePadding sx={{ position: 'relative' }}>
-                {showIndicator && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: collapsed ? 8 : 16,
-                      right: 12,
-                      height: 2,
-                      bgcolor: 'primary.main',
-                      borderRadius: 1,
-                      [indicatorPosition]: 0,
-                    }}
-                  />
-                )}
-                <Tooltip title={item.label} placement="right">
-                  {button}
-                </Tooltip>
-              </ListItem>
-            ) : (
-              <ListItem key={item.key} disablePadding sx={{ position: 'relative' }}>
-                {showIndicator && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: 16,
-                      right: 12,
-                      height: 2,
-                      bgcolor: 'primary.main',
-                      borderRadius: 1,
-                      [indicatorPosition]: 0,
-                    }}
-                  />
-                )}
-                {button}
-              </ListItem>
-            );
-          })}
-        </List>
-        {!collapsed && (
-          <>
-            <Divider />
-            <Box
-              sx={{
-                px: 2.5,
-                py: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <Typography variant="overline" color="text.secondary">
-                Minhas visoes
-              </Typography>
-              <IconButton
-                size="small"
-                aria-label="Criar visao"
-                onClick={() => handleOpenViewDialog(null)}
-              >
-                <Add fontSize="small" />
-              </IconButton>
-            </Box>
-            <List dense disablePadding>
-              {views.length === 0 ? (
-                <ListItem>
-                  <ListItemText primary="Nenhuma visao ainda." />
-                </ListItem>
-              ) : (
-                views.map((view) => (
-                  <ListItem
-                    key={view.id}
-                    disablePadding
-                    secondaryAction={
-                      <IconButton
-                        edge="end"
-                        aria-label="Acoes"
-                        size="small"
-                        onClick={(event) => handleOpenViewMenu(event, view.id)}
-                      >
-                        <MoreVert fontSize="small" />
-                      </IconButton>
-                    }
-                  >
-                    <ListItemButton
-                      component={NavLink}
-                      to={`/view/${view.id}`}
-                      onClick={handleNavigate}
-                      sx={{
-                        minHeight: 44,
-                        px: 2.5,
-                        '&.active, &[aria-current="page"]': {
-                          bgcolor: 'action.selected',
-                          '& .MuiListItemIcon-root': { color: 'text.primary' },
-                        },
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
-                        <ViewList fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={view.name}
-                        primaryTypographyProps={{ noWrap: true }}
-                      />
-                    </ListItemButton>
+                  <Add fontSize="small" />
+                </IconButton>
+              </Box>
+              <List dense disablePadding>
+                {views.length === 0 ? (
+                  <ListItem>
+                    <ListItemText primary="Nenhuma visao ainda." />
                   </ListItem>
-                ))
-              )}
-            </List>
-          </>
-        )}
+                ) : (
+                  views.map((view) => (
+                    <ListItem
+                      key={view.id}
+                      disablePadding
+                      secondaryAction={
+                        <IconButton
+                          edge="end"
+                          aria-label="Acoes"
+                          size="small"
+                          onClick={(event) => handleOpenViewMenu(event, view.id)}
+                        >
+                          <MoreVert fontSize="small" />
+                        </IconButton>
+                      }
+                    >
+                      <ListItemButton
+                        component={NavLink}
+                        to={`/view/${view.id}`}
+                        onClick={handleNavigate}
+                        sx={{
+                          minHeight: 44,
+                          px: 2.5,
+                          '&.active, &[aria-current="page"]': {
+                            bgcolor: 'action.selected',
+                            '& .MuiListItemIcon-root': { color: 'text.primary' },
+                          },
+                        }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
+                          <ViewList fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={view.name}
+                          primaryTypographyProps={{ noWrap: true }}
+                        />
+                      </ListItemButton>
+                    </ListItem>
+                  ))
+                )}
+              </List>
+            </>
+          )}
+        </Collapse>
       </Box>
       {!isMobile && (
         <>

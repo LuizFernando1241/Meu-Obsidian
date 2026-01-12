@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { extractLinkTargets } from '../app/wikilinks';
 import { getNextRecurringDue } from '../tasks/date';
+import { emitIndexerEvent } from '../tasks/indexerRuntime';
 import { filterActiveNodes } from './deleted';
 import { db } from './db';
 import { normalizeProps } from './propsNormalize';
@@ -44,6 +45,10 @@ const notifyLocalChange = () => {
   }
 };
 
+export const emitLocalChange = () => {
+  notifyLocalChange();
+};
+
 export const getGlobalSchema = async (): Promise<PropertySchema | undefined> =>
   db.schemas.get('global') as Promise<PropertySchema | undefined>;
 
@@ -76,6 +81,7 @@ export const upsertSchema = async (schema: PropertySchema): Promise<PropertySche
   const now = Date.now();
   const next = normalizeSchema(schema, now);
   await db.schemas.put(next);
+  void emitIndexerEventsForSchema(next.id).catch(() => undefined);
   notifyLocalChange();
   return next;
 };
@@ -85,6 +91,7 @@ export const deleteSchema = async (id: string): Promise<void> => {
     throw new Error('Schema global nao pode ser removido.');
   }
   await db.schemas.delete(id);
+  void emitIndexerEventsForSchema(id).catch(() => undefined);
   notifyLocalChange();
 };
 
@@ -217,6 +224,7 @@ export const createNote = async (partial: CreateNoteInput): Promise<NoteNode> =>
   };
 
   await db.items.put(note);
+  emitIndexerEvent({ type: 'NOTE_SAVED', noteId: note.id });
   notifyLocalChange();
   return note;
 };
@@ -359,6 +367,9 @@ export const updateItemContent = async (id: string, patch: ContentPatch): Promis
       return nextItem as Node;
     }),
   );
+  if (next.nodeType === 'note') {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: next.id });
+  }
   notifyLocalChange();
   return next as Node;
 };
@@ -410,6 +421,11 @@ export const updateItemProps = async (id: string, patch: PropsPatch): Promise<No
       return nextItem as Node;
     }),
   );
+  if (next.nodeType === 'note') {
+    emitIndexerEvent({ type: 'PROPS_CHANGED', noteId: next.id });
+  } else if (next.nodeType === 'folder' && hasOwn(patch, 'props')) {
+    void emitIndexerEventsForFolder(next.id).catch(() => undefined);
+  }
   notifyLocalChange();
   return next as Node;
 };
@@ -439,13 +455,15 @@ export const renameNode = async (id: string, title: string): Promise<Node> => {
   return next as Node;
 };
 
-export const moveNode = async (id: string, parentId?: string): Promise<Node> =>
-  enqueueItemWrite(id, async () =>
+export const moveNode = async (id: string, parentId?: string): Promise<Node> => {
+  let fromParentId: string | null | undefined;
+  const next = await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(id);
       if (!current) {
         throw new Error('Item nao encontrado');
       }
+      fromParentId = current.parentId ?? null;
       const order = await getNextOrderValue(parentId);
       await db.items.update(id, {
         parentId,
@@ -459,10 +477,20 @@ export const moveNode = async (id: string, parentId?: string): Promise<Node> =>
       }
       return nextItem as Node;
     }),
-  ).then((next) => {
-    notifyLocalChange();
-    return next as Node;
-  });
+  );
+  if (next.nodeType === 'note') {
+    emitIndexerEvent({
+      type: 'NOTE_MOVED',
+      noteId: next.id,
+      fromFolderId: fromParentId ?? null,
+      toFolderId: next.parentId ?? null,
+    });
+  } else if (next.nodeType === 'folder') {
+    void emitIndexerEventsForFolder(next.id).catch(() => undefined);
+  }
+  notifyLocalChange();
+  return next as Node;
+};
 
 export const reorderNodesInParent = async (
   parentId: string | undefined,
@@ -505,6 +533,7 @@ export const updateChecklistBlock = async (
   blockId: string,
   patch: Partial<ChecklistBlock>,
 ): Promise<void> => {
+  let updatedItem: NoteNode | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -534,9 +563,13 @@ export const updateChecklistBlock = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
+      updatedItem = nextItem;
       await db.items.put(nextItem);
     }),
   );
+  if (updatedItem) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  }
   notifyLocalChange();
 };
 
@@ -562,6 +595,7 @@ export const updateChecklistMeta = async (
   blockId: string,
   patch: Partial<ChecklistBlock['meta']>,
 ): Promise<void> => {
+  let updatedItem: NoteNode | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -595,9 +629,13 @@ export const updateChecklistMeta = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
+      updatedItem = nextItem;
       await db.items.put(nextItem);
     }),
   );
+  if (updatedItem) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  }
   notifyLocalChange();
 };
 
@@ -605,8 +643,9 @@ export const toggleChecklist = async (
   noteId: string,
   blockId: string,
   checked: boolean,
-): Promise<void> =>
-  enqueueItemWrite(noteId, async () =>
+): Promise<void> => {
+  let updatedItem: NoteNode | null = null;
+  await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
       if (!current) {
@@ -658,9 +697,15 @@ export const toggleChecklist = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
+      updatedItem = nextItem;
       await db.items.put(nextItem);
     }),
-  ).then(() => notifyLocalChange());
+  );
+  if (updatedItem) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  }
+  notifyLocalChange();
+};
 
 export const setChecklistDue = async (
   noteId: string,
@@ -673,6 +718,7 @@ export const setChecklistSnooze = async (
   blockId: string,
   snoozedUntil: string | null,
 ): Promise<void> => {
+  let updatedItem: NoteNode | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -710,9 +756,13 @@ export const setChecklistSnooze = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
+      updatedItem = nextItem;
       await db.items.put(nextItem);
     }),
   );
+  if (updatedItem) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  }
   notifyLocalChange();
 };
 
@@ -736,6 +786,7 @@ export const deleteNode = async (id: string) => {
 };
 
 export const softDeleteNode = async (id: string) => {
+  let updatedItem: NoteNode | null = null;
   await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, db.snapshots, async () => {
       const current = await db.items.get(id);
@@ -753,12 +804,20 @@ export const softDeleteNode = async (id: string) => {
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       });
+      const nextItem = await db.items.get(id);
+      if (nextItem && nextItem.nodeType === 'note') {
+        updatedItem = nextItem as NoteNode;
+      }
     }),
   );
+  if (updatedItem) {
+    emitIndexerEvent({ type: 'NOTE_DELETED', noteId: updatedItem.id });
+  }
   notifyLocalChange();
 };
 
 export const restoreNode = async (id: string) => {
+  let updatedItem: NoteNode | null = null;
   await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(id);
@@ -773,14 +832,21 @@ export const restoreNode = async (id: string) => {
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       });
+      const nextItem = await db.items.get(id);
+      if (nextItem && nextItem.nodeType === 'note') {
+        updatedItem = nextItem as NoteNode;
+      }
     }),
   );
+  if (updatedItem) {
+    emitIndexerEvent({ type: 'NOTE_RESTORED', noteId: updatedItem.id });
+  }
   notifyLocalChange();
 };
 
 export const deleteNodePermanently = async (id: string) => {
   await enqueueItemWrite(id, async () =>
-    db.transaction('rw', db.items, db.tombstones, db.snapshots, async () => {
+    db.transaction('rw', db.items, db.tombstones, db.snapshots, db.tasks_index, async () => {
       const current = await db.items.get(id);
       if (!current) {
         return;
@@ -793,6 +859,9 @@ export const deleteNodePermanently = async (id: string) => {
       await db.tombstones.put(tombstone);
       await db.items.delete(id);
       await db.snapshots.where('nodeId').equals(id).delete();
+      if (current.nodeType === 'note') {
+        await db.tasks_index.where('noteId').equals(id).delete();
+      }
     }),
   );
   notifyLocalChange();
@@ -809,7 +878,7 @@ export const restoreSnapshot = async (snapshotId: string): Promise<Node | undefi
     return undefined;
   }
   const nodeId = snapshot.nodeId;
-  return enqueueItemWrite(nodeId, async () =>
+  const next = await enqueueItemWrite(nodeId, async () =>
     db.transaction('rw', db.items, db.snapshots, async () => {
       const current = await db.items.get(nodeId);
       if (!current) {
@@ -833,6 +902,11 @@ export const restoreSnapshot = async (snapshotId: string): Promise<Node | undefi
       return nextItem as Node;
     }),
   );
+  if (next?.nodeType === 'note') {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: next.id });
+  }
+  notifyLocalChange();
+  return next;
 };
 
 export const listItems = async (params?: ListParams) => {
@@ -983,12 +1057,109 @@ export const recomputeLinksToFromBlocks = async (blocks: Block[]): Promise<strin
   return Array.from(resolved);
 };
 
+const collectDescendantNoteIdsFromMap = (
+  folderId: string,
+  byParent: Map<string, Node[]>,
+): string[] => {
+  const noteIds: string[] = [];
+  const stack: string[] = [folderId];
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    if (!currentId) {
+      continue;
+    }
+    const children = byParent.get(currentId) ?? [];
+    children.forEach((child) => {
+      if (child.nodeType === 'note') {
+        noteIds.push(child.id);
+        return;
+      }
+      if (child.nodeType === 'folder') {
+        stack.push(child.id);
+      }
+    });
+  }
+  return noteIds;
+};
+
+const collectDescendantNoteIds = async (folderId: string): Promise<string[]> => {
+  const items = await db.items.toArray();
+  const active = filterActiveNodes(items as Node[]);
+  const byParent = new Map<string, Node[]>();
+  active.forEach((item) => {
+    const parentId = item.parentId ?? '';
+    const list = byParent.get(parentId) ?? [];
+    list.push(item);
+    byParent.set(parentId, list);
+  });
+
+  return collectDescendantNoteIdsFromMap(folderId, byParent);
+};
+
+const emitIndexerEventsForFolder = async (folderId: string) => {
+  const noteIds = await collectDescendantNoteIds(folderId);
+  noteIds.forEach((noteId) => {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId });
+  });
+};
+
+const emitIndexerEventsForSchema = async (schemaId: string) => {
+  const items = await db.items.toArray();
+  const active = filterActiveNodes(items as Node[]);
+  const byParent = new Map<string, Node[]>();
+  active.forEach((item) => {
+    const parentId = item.parentId ?? '';
+    const list = byParent.get(parentId) ?? [];
+    list.push(item);
+    byParent.set(parentId, list);
+  });
+
+  const folders = active.filter((item) => {
+    if (item.nodeType !== 'folder') {
+      return false;
+    }
+    const props = item.props as Record<string, unknown> | undefined;
+    return typeof props?.schemaId === 'string' && props.schemaId === schemaId;
+  });
+
+  if (folders.length === 0) {
+    return;
+  }
+
+  const noteIds = new Set<string>();
+  folders.forEach((folder) => {
+    collectDescendantNoteIdsFromMap(folder.id, byParent).forEach((noteId) =>
+      noteIds.add(noteId),
+    );
+  });
+
+  noteIds.forEach((noteId) => {
+    emitIndexerEvent({ type: 'PROPS_CHANGED', noteId });
+  });
+};
+
 export const wipeAll = async () => {
-  await db.transaction('rw', db.items, db.tombstones, db.snapshots, db.schemas, async () => {
+  await db.transaction(
+    'rw',
+    db.items,
+    db.tombstones,
+    db.snapshots,
+    db.schemas,
+    db.tasks_index,
+    db.user_state,
+    db.inbox_items,
+    db.app_meta,
+    db.index_jobs,
+    async () => {
     await db.items.clear();
     await db.tombstones.clear();
     await db.snapshots.clear();
     await db.schemas.clear();
+    await db.tasks_index.clear();
+    await db.user_state.clear();
+    await db.inbox_items.clear();
+    await db.app_meta.clear();
+    await db.index_jobs.clear();
   });
   notifyLocalChange();
 };
