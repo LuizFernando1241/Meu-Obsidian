@@ -1145,15 +1145,17 @@ const emitIndexerEventsForSchema = async (schemaId: string) => {
 export const wipeAll = async () => {
   await db.transaction(
     'rw',
-    db.items,
-    db.tombstones,
-    db.snapshots,
-    db.schemas,
-    db.tasks_index,
-    db.user_state,
-    db.inbox_items,
-    db.app_meta,
-    db.index_jobs,
+    [
+      db.items,
+      db.tombstones,
+      db.snapshots,
+      db.schemas,
+      db.tasks_index,
+      db.user_state,
+      db.inbox_items,
+      db.app_meta,
+      db.index_jobs,
+    ],
     async () => {
     await db.items.clear();
     await db.tombstones.clear();
