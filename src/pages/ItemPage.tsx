@@ -321,6 +321,7 @@ export default function ItemPage() {
 
   const [isDirty, setIsDirty] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = React.useState<number | null>(null);
   const [moveOpen, setMoveOpen] = React.useState(false);
   const [renameOpen, setRenameOpen] = React.useState(false);
@@ -331,6 +332,7 @@ export default function ItemPage() {
   const skipAutosaveRef = React.useRef(true);
   const changeCounterRef = React.useRef(0);
   const lastSavedRef = React.useRef<{ title: string; blocks: Block[] } | null>(null);
+  const lastSaveErrorAtRef = React.useRef(0);
 
   const draftTitleRef = React.useRef(presentTitle);
   const blocksRef = React.useRef(presentBlocks);
@@ -446,6 +448,7 @@ export default function ItemPage() {
       }
 
       setIsSaving(true);
+      setSaveError(null);
 
       try {
         const linksTo = await recomputeLinksToFromBlocks(blocksRef.current);
@@ -463,13 +466,20 @@ export default function ItemPage() {
           setIsDirty(false);
           setIsSaving(false);
           setLastSavedAt(Date.now());
+          setSaveError(null);
         }
       } catch (error) {
-        console.error(error);
+        const message = error instanceof Error ? error.message : String(error);
+        const now = Date.now();
+        if (now - lastSaveErrorAtRef.current > 10000) {
+          lastSaveErrorAtRef.current = now;
+          notifier.error(`Erro ao salvar: ${message}`);
+        }
+        setSaveError('Erro ao salvar');
         setIsSaving(false);
       }
     },
-    [itemId],
+    [itemId, notifier],
   );
 
   const { debounced: debouncedSave, cancel: cancelDebouncedSave } = useDebouncedCallback(
@@ -514,6 +524,7 @@ export default function ItemPage() {
         if (result.nodeType === 'folder') {
           setIsDirty(false);
           setIsSaving(false);
+          setSaveError(null);
           setLastSavedAt(result.updatedAt);
           return;
         }
@@ -547,6 +558,7 @@ export default function ItemPage() {
         };
         setIsDirty(false);
         setIsSaving(false);
+        setSaveError(null);
         setLastSavedAt(result.updatedAt);
       })
       .catch(() => {
@@ -1184,10 +1196,15 @@ export default function ItemPage() {
     if (!pendingLinkTitle) {
       return;
     }
+    const title = pendingLinkTitle.trim();
+    if (!title) {
+      setPendingLinkTitle(null);
+      return;
+    }
     setCreatingLink(true);
     try {
       const created = await createNote({
-        title: pendingLinkTitle,
+        title,
         parentId: liveItem?.parentId,
       });
       if (itemId && liveItem && resolvedType === 'note') {
@@ -1198,6 +1215,8 @@ export default function ItemPage() {
       navigate(`/item/${created.id}`, { state: { focusEditor: true } });
     } catch (error) {
       console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao criar nota: ${message}`);
     } finally {
       setCreatingLink(false);
     }
@@ -1231,9 +1250,14 @@ export default function ItemPage() {
 
   const saveLabel = isSaving
     ? 'Salvando...'
-    : !isDirty && typeof lastSavedAt === 'number' && Number.isFinite(lastSavedAt)
-      ? `Salvo ${format(new Date(lastSavedAt), 'HH:mm')}`
-      : '';
+    : saveError
+      ? 'Erro ao salvar'
+      : isDirty
+        ? 'Alteracoes pendentes'
+        : typeof lastSavedAt === 'number' && Number.isFinite(lastSavedAt)
+          ? `Salvo ${format(new Date(lastSavedAt), 'HH:mm')}`
+          : '';
+  const saveLabelColor = saveError ? 'error' : 'text.secondary';
 
   return (
     <Box ref={editorContainerRef} sx={{ width: '100%', maxWidth: 1000, mx: 'auto' }}>
@@ -1280,6 +1304,7 @@ export default function ItemPage() {
                   disableUnderline: true,
                   sx: { fontSize: '2rem', fontWeight: 600 },
                 }}
+                inputProps={{ 'aria-label': 'Titulo da nota' }}
               />
             </Box>
             <Stack direction="row" spacing={1}>
@@ -1306,7 +1331,7 @@ export default function ItemPage() {
               ))}
             </Stack>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { sm: 'auto' } }}>
-            {saveLabel && <Typography color="text.secondary">{saveLabel}</Typography>}
+            {saveLabel && <Typography color={saveLabelColor}>{saveLabel}</Typography>}
             <IconButton
               size="small"
               onClick={handleTogglePreview}

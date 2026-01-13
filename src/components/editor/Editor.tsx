@@ -7,6 +7,7 @@ import { replaceRange } from '../../app/wikilinks';
 import { createNote, searchByTitlePrefix } from '../../data/repo';
 import type { Block, BlockType, Node } from '../../data/types';
 import { parseMarkdownToBlocks } from '../../editor/markdownToBlocks';
+import { useNotifier } from '../Notifier';
 import BlockEditor from './BlockEditor';
 import { arrayMove, findIndexById } from './reorder';
 import SlashMenu from './SlashMenu';
@@ -250,6 +251,7 @@ export default function Editor({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const blockRefs = React.useRef<Record<string, HTMLElement | null>>({});
   const blocksRef = React.useRef(blocks);
+  const notifier = useNotifier();
 
   const [focusTarget, setFocusTarget] = React.useState<FocusTarget | null>(null);
   const [slashState, setSlashState] = React.useState<{
@@ -759,9 +761,11 @@ export default function Editor({
         applyLinkInsertion({ id: created.id, title: created.title });
       } catch (error) {
         console.error(error);
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao criar nota: ${message}`);
       }
     },
-    [applyLinkInsertion, linkState],
+    [applyLinkInsertion, linkState, notifier],
   );
 
   const handleSelectItem = React.useCallback(
