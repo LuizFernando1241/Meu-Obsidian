@@ -292,7 +292,6 @@ export default function AppShell() {
 
   const handleCapture = React.useCallback(
     async (payload: { text: string; logDaily: boolean }) => {
-      const now = new Date();
       const block: Block = {
         id: uuidv4(),
         type: 'paragraph',

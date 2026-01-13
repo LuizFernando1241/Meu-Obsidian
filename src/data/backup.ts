@@ -795,15 +795,17 @@ export const importVaultPayload = async (
   if (mode === 'replace') {
     await db.transaction(
       'rw',
-      db.items,
-      db.tombstones,
-      db.views,
-      db.schemas,
-      db.tasks_index,
-      db.user_state,
-      db.inbox_items,
-      db.app_meta,
-      db.index_jobs,
+      [
+        db.items,
+        db.tombstones,
+        db.views,
+        db.schemas,
+        db.tasks_index,
+        db.user_state,
+        db.inbox_items,
+        db.app_meta,
+        db.index_jobs,
+      ],
       async () => {
       await db.items.clear();
       await db.tombstones.clear();
@@ -994,14 +996,16 @@ export const importVaultPayload = async (
 
   await db.transaction(
     'rw',
-    db.items,
-    db.views,
-    db.schemas,
-    db.tasks_index,
-    db.user_state,
-    db.inbox_items,
-    db.app_meta,
-    db.index_jobs,
+    [
+      db.items,
+      db.views,
+      db.schemas,
+      db.tasks_index,
+      db.user_state,
+      db.inbox_items,
+      db.app_meta,
+      db.index_jobs,
+    ],
     async () => {
     if (toAdd.length > 0) {
       await db.items.bulkAdd(toAdd);
@@ -1150,15 +1154,17 @@ export const importReplaceAll = async (payload: BackupPayload) => {
   const indexJobs = Array.isArray(payload.index_jobs) ? payload.index_jobs : [];
   await db.transaction(
     'rw',
-    db.items,
-    db.tombstones,
-    db.views,
-    db.schemas,
-    db.tasks_index,
-    db.user_state,
-    db.inbox_items,
-    db.app_meta,
-    db.index_jobs,
+    [
+      db.items,
+      db.tombstones,
+      db.views,
+      db.schemas,
+      db.tasks_index,
+      db.user_state,
+      db.inbox_items,
+      db.app_meta,
+      db.index_jobs,
+    ],
     async () => {
     await db.items.clear();
     await db.tombstones.clear();
@@ -1358,14 +1364,16 @@ export const importMerge = async (payload: BackupPayload) => {
 
   await db.transaction(
     'rw',
-    db.items,
-    db.views,
-    db.schemas,
-    db.tasks_index,
-    db.user_state,
-    db.inbox_items,
-    db.app_meta,
-    db.index_jobs,
+    [
+      db.items,
+      db.views,
+      db.schemas,
+      db.tasks_index,
+      db.user_state,
+      db.inbox_items,
+      db.app_meta,
+      db.index_jobs,
+    ],
     async () => {
     if (toAdd.length > 0) {
       await db.items.bulkAdd(toAdd);
