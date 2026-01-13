@@ -135,6 +135,9 @@ export default function HelpPage() {
           <ListItem>
             <ListItemText primary="As visoes Tarefas, Hoje e Atrasadas reunem checklists abertas." />
           </ListItem>
+          <ListItem>
+            <ListItemText primary="Use Agora para executar com foco e menos distracoes." />
+          </ListItem>
         </List>
       </Stack>
 
