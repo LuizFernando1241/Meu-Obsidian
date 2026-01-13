@@ -61,7 +61,7 @@ export default function GraphPage() {
               Centralizar
             </Button>
             <Button variant="outlined" onClick={() => navigate('/notes')}>
-              Voltar para Notas
+              Voltar para Registros
             </Button>
           </Stack>
         </Box>

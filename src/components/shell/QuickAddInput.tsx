@@ -12,7 +12,7 @@ type QuickAddInputProps = {
 };
 
 export default function QuickAddInput({
-  placeholder = 'Adicionar a inbox...',
+  placeholder = 'Adicionar a inbox... (! tarefa, @ compromisso, # registro, $ contato)',
   size = 'small',
 }: QuickAddInputProps) {
   const notifier = useNotifier();

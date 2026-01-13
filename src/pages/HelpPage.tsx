@@ -121,7 +121,7 @@ export default function HelpPage() {
             <ListItemText primary="Pastas organizam seu conteudo e podem conter subpastas e notas." />
           </ListItem>
           <ListItem>
-            <ListItemText primary="Notas ficam na raiz ou dentro de pastas. Notas na raiz aparecem como Notas rapidas." />
+            <ListItemText primary="Registros guardam fornecedores, contatos e ideias. Notas ficam na raiz ou em pastas." />
           </ListItem>
         </List>
       </Stack>
@@ -133,7 +133,10 @@ export default function HelpPage() {
             <ListItemText primary="Tarefas sao checklists dentro das notas." />
           </ListItem>
           <ListItem>
-            <ListItemText primary="As visoes Tarefas, Hoje e Atrasadas reunem checklists abertas." />
+            <ListItemText primary="Use o Painel para filtrar e ver todas as tarefas." />
+          </ListItem>
+          <ListItem>
+            <ListItemText primary="Hoje mostra Critico, Plano do dia e Backlog rapido." />
           </ListItem>
           <ListItem>
             <ListItemText primary="Use Agora para executar com foco e menos distracoes." />

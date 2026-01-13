@@ -268,7 +268,7 @@ export default function TasksViewPage() {
     <Stack spacing={3}>
       <Stack spacing={1}>
         <Typography variant="h4" component="h1">
-          Tarefas
+          Painel
         </Typography>
         <Typography color="text.secondary">
           {showCompleted

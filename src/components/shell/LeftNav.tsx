@@ -2,6 +2,9 @@ import {
   Box,
   Collapse,
   Divider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   Drawer,
   IconButton,
   List,
@@ -11,6 +14,7 @@ import {
   ListItem,
   Menu,
   MenuItem,
+  Button,
   Tooltip,
   Toolbar,
   Typography,
@@ -57,23 +61,18 @@ const versionLabel = `v-${GIT_SHA}`;
 const LEGACY_PRIMARY_KEYS = [
   'focus',
   'today',
-  'week',
-  'backlog',
   'inbox',
   'projects',
   'notes',
   'review',
 ];
 
-const LEGACY_ADVANCED_KEYS = ['tasks', 'overdue', 'tags', 'graph', 'trash', 'settings', 'help'];
+const LEGACY_ADVANCED_KEYS = ['tasks', 'tags', 'graph', 'trash', 'settings', 'help'];
 
 const COCKPIT_PRIMARY_KEYS = ['home-cockpit', 'focus', 'inbox'];
 
 const COCKPIT_ADVANCED_KEYS = [
   'today',
-  'week',
-  'backlog',
-  'overdue',
   'tasks',
   'projects',
   'notes',
@@ -180,6 +179,7 @@ export default function LeftNav({
   const [advancedOpen, setAdvancedOpen] = React.useState(
     () => readStored(ADVANCED_OPEN_KEY) ?? false,
   );
+  const [advancedDialogOpen, setAdvancedDialogOpen] = React.useState(false);
 
   const primaryItems = React.useMemo(() => {
     const keys = cockpitEnabled ? COCKPIT_PRIMARY_KEYS : LEGACY_PRIMARY_KEYS;
@@ -202,6 +202,12 @@ export default function LeftNav({
       setAdvancedOpen(false);
     }
   }, [collapsed]);
+
+  React.useEffect(() => {
+    if (cockpitEnabled) {
+      setAdvancedOpen(false);
+    }
+  }, [cockpitEnabled]);
 
   React.useEffect(() => {
     if (cockpitEnabled) {
@@ -228,6 +234,11 @@ export default function LeftNav({
     if (isMobile) {
       onClose();
     }
+  };
+
+  const handleDialogNavigate = () => {
+    setAdvancedDialogOpen(false);
+    handleNavigate();
   };
 
   const handleOpenViewDialog = (view?: SavedView | null) => {
@@ -377,6 +388,16 @@ export default function LeftNav({
     [clearDragState, getDragNavKey, navItems],
   );
 
+  const getNavLabel = React.useCallback(
+    (item: (typeof NAV_ROUTES)[number]) => {
+      if (cockpitEnabled && item.key === 'notes') {
+        return 'Registros/Arquivo';
+      }
+      return item.label;
+    },
+    [cockpitEnabled],
+  );
+
   const renderNavList = (
     items: (typeof NAV_ROUTES)[number][],
     {
@@ -396,6 +417,7 @@ export default function LeftNav({
     >
       {items.map((item) => {
         const Icon = item.icon;
+        const label = getNavLabel(item);
         const isDropTarget = dropNavKey === item.key;
         const showIndicator =
           draggable && isDropTarget && (dropNavPosition === 'above' || dropNavPosition === 'below');
@@ -432,7 +454,7 @@ export default function LeftNav({
               {Icon ? <Icon /> : null}
             </ListItemIcon>
             <ListItemText
-              primary={item.label}
+              primary={label}
               primaryTypographyProps={{ noWrap: true }}
               sx={{ opacity: collapsed ? 0 : 1 }}
             />
@@ -454,7 +476,7 @@ export default function LeftNav({
                 }}
               />
             )}
-            <Tooltip title={item.label} placement="right">
+            <Tooltip title={label} placement="right">
               {button}
             </Tooltip>
           </ListItem>
@@ -500,7 +522,13 @@ export default function LeftNav({
         <Divider />
         <List disablePadding>
           <ListItemButton
-            onClick={() => setAdvancedOpen((prev) => !prev)}
+            onClick={() => {
+              if (cockpitEnabled) {
+                setAdvancedDialogOpen(true);
+              } else {
+                setAdvancedOpen((prev) => !prev);
+              }
+            }}
             sx={{
               minHeight: 48,
               px: collapsed ? 1.5 : 2.5,
@@ -508,18 +536,24 @@ export default function LeftNav({
             }}
           >
             {!collapsed && (
-              <ListItemText primary="Avancado" primaryTypographyProps={{ noWrap: true }} />
+              <ListItemText
+                primary={cockpitEnabled ? 'Mais' : 'Avancado'}
+                primaryTypographyProps={{ noWrap: true }}
+              />
             )}
             {collapsed ? (
-              <Tooltip title="Avancado" placement="right">
-                <Box>{advancedOpen ? <ExpandLess /> : <ExpandMore />}</Box>
+              <Tooltip title={cockpitEnabled ? 'Mais' : 'Avancado'} placement="right">
+                <Box>
+                  {cockpitEnabled ? <MoreVert /> : advancedOpen ? <ExpandLess /> : <ExpandMore />}
+                </Box>
               </Tooltip>
             ) : (
-              <>{advancedOpen ? <ExpandLess /> : <ExpandMore />}</>
+              <>{cockpitEnabled ? <MoreVert /> : advancedOpen ? <ExpandLess /> : <ExpandMore />}</>
             )}
           </ListItemButton>
         </List>
-        <Collapse in={advancedOpen} timeout="auto" unmountOnExit>
+        {!cockpitEnabled && (
+          <Collapse in={advancedOpen} timeout="auto" unmountOnExit>
           {renderNavList(advancedItems)}
           {!collapsed && (
             <>
@@ -592,7 +626,8 @@ export default function LeftNav({
               </List>
             </>
           )}
-        </Collapse>
+          </Collapse>
+        )}
       </Box>
       {!isMobile && (
         <>
@@ -657,6 +692,91 @@ export default function LeftNav({
       PaperProps={{ sx: { width, overflowX: 'hidden' } }}
     >
       {drawerContent}
+      <Dialog
+        open={advancedDialogOpen}
+        onClose={() => setAdvancedDialogOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Mais</DialogTitle>
+        <DialogContent dividers>
+          <List disablePadding>
+            {advancedItems.map((item) => {
+              const Icon = item.icon;
+              const label = getNavLabel(item);
+              return (
+                <ListItem key={item.key} disablePadding>
+                  <ListItemButton
+                    component={NavLink}
+                    to={item.path}
+                    end={item.path === '/'}
+                    onClick={handleDialogNavigate}
+                    sx={{
+                      minHeight: 48,
+                      px: 2,
+                      '&.active, &[aria-current="page"]': {
+                        bgcolor: 'action.selected',
+                        '& .MuiListItemIcon-root': { color: 'text.primary' },
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
+                      {Icon ? <Icon /> : null}
+                    </ListItemIcon>
+                    <ListItemText primary={label} primaryTypographyProps={{ noWrap: true }} />
+                  </ListItemButton>
+                </ListItem>
+              );
+            })}
+          </List>
+          <Divider sx={{ my: 2 }} />
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              mb: 1,
+            }}
+          >
+            <Typography variant="overline" color="text.secondary">
+              Minhas visoes
+            </Typography>
+            <Button size="small" onClick={() => handleOpenViewDialog(null)}>
+              Criar visao
+            </Button>
+          </Box>
+          <List dense disablePadding>
+            {views.length === 0 ? (
+              <ListItem>
+                <ListItemText primary="Nenhuma visao ainda." />
+              </ListItem>
+            ) : (
+              views.map((view) => (
+                <ListItem key={view.id} disablePadding>
+                  <ListItemButton
+                    component={NavLink}
+                    to={`/view/${view.id}`}
+                    onClick={handleDialogNavigate}
+                    sx={{
+                      minHeight: 44,
+                      px: 2,
+                      '&.active, &[aria-current="page"]': {
+                        bgcolor: 'action.selected',
+                        '& .MuiListItemIcon-root': { color: 'text.primary' },
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 0, mr: 2 }}>
+                      <ViewList fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText primary={view.name} primaryTypographyProps={{ noWrap: true }} />
+                  </ListItemButton>
+                </ListItem>
+              ))
+            )}
+          </List>
+        </DialogContent>
+      </Dialog>
       <ViewEditorDialog
         open={viewDialogOpen}
         mode={editingView ? 'edit' : 'create'}

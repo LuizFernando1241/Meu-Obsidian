@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 import { db } from './db';
+import { getTodayISO } from '../tasks/date';
 import { emitLocalChange, createNote, appendNoteBlock, getByTitleExact } from './repo';
 import type { Block, InboxItemRow, NoteNode, Space } from './types';
 
@@ -27,6 +28,27 @@ export const createInboxItem = async (
   await db.inbox_items.put(row);
   emitLocalChange();
   return row;
+};
+
+export type InboxShortcutKind = 'task' | 'event' | 'note' | 'contact' | null;
+
+export const parseInboxShortcut = (content: string): { kind: InboxShortcutKind; text: string } => {
+  const trimmed = content.trimStart();
+  const symbol = trimmed.charAt(0);
+  const rest = trimmed.slice(1).trim();
+  if (symbol === '!') {
+    return { kind: 'task', text: rest || trimmed };
+  }
+  if (symbol === '@') {
+    return { kind: 'event', text: rest || trimmed };
+  }
+  if (symbol === '#') {
+    return { kind: 'note', text: rest || trimmed };
+  }
+  if (symbol === '$') {
+    return { kind: 'contact', text: rest || trimmed };
+  }
+  return { kind: null, text: content.trim() };
 };
 
 const makeChecklistBlock = (text: string): Block => ({
@@ -60,9 +82,10 @@ export const convertInboxItemToTask = async (
   if (!row || row.status !== 'OPEN') {
     return null;
   }
+  const { text } = parseInboxShortcut(row.content);
   const title = `Inbox - ${row.space}`;
   const existing = await getByTitleExact(title);
-  const block = makeChecklistBlock(row.content);
+  const block = makeChecklistBlock(text || row.content);
   let noteId = '';
   if (existing && existing.nodeType === 'note') {
     await appendNoteBlock(existing.id, block);
@@ -75,15 +98,55 @@ export const convertInboxItemToTask = async (
   return { noteId, blockId: block.id };
 };
 
+const convertInboxItemToNoteWithTags = async (
+  row: InboxItemRow,
+  tags: string[],
+  props?: Record<string, unknown>,
+): Promise<NoteNode> => {
+  const { text } = parseInboxShortcut(row.content);
+  const cleanText = text || row.content;
+  const title = cleanText.trim() ? cleanText.trim().slice(0, 80) : 'Nova nota';
+  const note = await createNote({
+    title,
+    content: [makeParagraphBlock(cleanText)],
+    tags,
+    props,
+  });
+  return note;
+};
+
 export const convertInboxItemToNote = async (id: string): Promise<NoteNode | null> => {
   const row = await db.inbox_items.get(id);
   if (!row || row.status !== 'OPEN') {
     return null;
   }
-  const title = row.content.trim() ? row.content.trim().slice(0, 80) : 'Nova nota';
-  const note = await createNote({
-    title,
-    content: [makeParagraphBlock(row.content)],
+  const note = await convertInboxItemToNoteWithTags(row, ['registro']);
+  await markProcessed(row, 'NOTE');
+  return note;
+};
+
+export const convertInboxItemToEvent = async (id: string): Promise<NoteNode | null> => {
+  const row = await db.inbox_items.get(id);
+  if (!row || row.status !== 'OPEN') {
+    return null;
+  }
+  const note = await convertInboxItemToNoteWithTags(row, ['evento'], {
+    eventDate: getTodayISO(),
+    eventType: 'local',
+  });
+  await markProcessed(row, 'NOTE');
+  return note;
+};
+
+export const convertInboxItemToRecord = async (id: string): Promise<NoteNode | null> => {
+  const row = await db.inbox_items.get(id);
+  if (!row || row.status !== 'OPEN') {
+    return null;
+  }
+  const { kind } = parseInboxShortcut(row.content);
+  const tags = kind === 'contact' ? ['registro', 'contato'] : ['registro', 'ideia'];
+  const note = await convertInboxItemToNoteWithTags(row, tags, {
+    recordType: kind === 'contact' ? 'contact' : 'idea',
   });
   await markProcessed(row, 'NOTE');
   return note;

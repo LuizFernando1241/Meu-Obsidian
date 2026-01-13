@@ -9,6 +9,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Menu,
+  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -38,6 +40,7 @@ import { addDaysISO, getTodayISO } from '../tasks/date';
 import { mapTaskIndexRow } from '../tasks/taskIndexView';
 import { setTaskStatus } from '../tasks/taskIndexStore';
 import { buildPathCache, type PathInfo } from '../vault/pathCache';
+import DateField from '../components/DateField';
 
 const DEFAULT_USER_ID = 'local';
 
@@ -55,6 +58,21 @@ const toFocusEntry = (
   row,
   task: mapTaskIndexRow(row, note, pathCache.get(row.noteId), todayISO),
 });
+
+const PRIORITY_ORDER: Record<string, number> = {
+  P1: 3,
+  P2: 2,
+  P3: 1,
+};
+
+const sortByPriority = (left: TaskIndexRow, right: TaskIndexRow) => {
+  const leftPriority = PRIORITY_ORDER[left.priority ?? ''] ?? 0;
+  const rightPriority = PRIORITY_ORDER[right.priority ?? ''] ?? 0;
+  if (leftPriority !== rightPriority) {
+    return rightPriority - leftPriority;
+  }
+  return left.title.localeCompare(right.title);
+};
 
 export default function FocusPage() {
   const notifier = useNotifier();
@@ -115,6 +133,10 @@ export default function FocusPage() {
   const [quickNoteText, setQuickNoteText] = React.useState('');
   const [quickNoteTarget, setQuickNoteTarget] = React.useState<FocusEntry | null>(null);
   const [quickNoteSaving, setQuickNoteSaving] = React.useState(false);
+  const [snoozeAnchor, setSnoozeAnchor] = React.useState<HTMLElement | null>(null);
+  const [snoozeDate, setSnoozeDate] = React.useState('');
+  const [snoozeDialogOpen, setSnoozeDialogOpen] = React.useState(false);
+  const [switchDialogOpen, setSwitchDialogOpen] = React.useState(false);
   const handleCloseQuickNote = React.useCallback(() => {
     if (quickNoteSaving) {
       return;
@@ -126,11 +148,33 @@ export default function FocusPage() {
 
   const suggestions = React.useMemo(() => {
     const rows = tasksIndex.filter((row) => row.status !== 'DONE');
+    const seen = new Set<string>();
+    const ordered: TaskIndexRow[] = [];
+
+    const pushUnique = (rowList: TaskIndexRow[]) => {
+      rowList.forEach((row) => {
+        if (seen.has(row.taskId)) {
+          return;
+        }
+        seen.add(row.taskId);
+        ordered.push(row);
+      });
+    };
+
     const doing = rows.filter((row) => row.status === 'DOING');
     const today = rows.filter((row) => row.scheduledDay === todayISO);
-    const backlog = rows.filter((row) => !row.scheduledDay);
-    const preferred = doing.length > 0 ? doing : today.length > 0 ? today : backlog;
-    return preferred
+    const overdue = rows.filter((row) => row.dueDay && row.dueDay < todayISO);
+    const backlog = rows.filter(
+      (row) =>
+        !row.scheduledDay && (row.priority === 'P1' || row.priority === 'P2'),
+    );
+
+    pushUnique(doing);
+    pushUnique(today);
+    pushUnique(overdue);
+    pushUnique(backlog.sort(sortByPriority));
+
+    return ordered
       .slice(0, 5)
       .map((row) => toFocusEntry(row, notesById.get(row.noteId), pathCache, todayISO));
   }, [notesById, pathCache, tasksIndex, todayISO]);
@@ -295,6 +339,41 @@ export default function FocusPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao limpar fila: ${message}`);
+    }
+  };
+
+  const handleOpenSnoozeMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setSnoozeAnchor(event.currentTarget);
+  };
+
+  const handleCloseSnoozeMenu = () => {
+    setSnoozeAnchor(null);
+  };
+
+  const handleOpenSnoozeDialog = () => {
+    if (!focusEntry) {
+      return;
+    }
+    setSnoozeDate(focusEntry.row.scheduledDay ?? '');
+    setSnoozeDialogOpen(true);
+    setSnoozeAnchor(null);
+  };
+
+  const handleSaveSnoozeDialog = async () => {
+    if (!focusEntry) {
+      return;
+    }
+    try {
+      await setChecklistSnooze(
+        focusEntry.task.noteId,
+        focusEntry.task.blockId,
+        snoozeDate ? snoozeDate : null,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao agendar: ${message}`);
+    } finally {
+      setSnoozeDialogOpen(false);
     }
   };
 
@@ -485,11 +564,13 @@ export default function FocusPage() {
                 <Button variant="outlined" onClick={() => handleOpenTask(focusEntry)}>
                   Abrir contexto
                 </Button>
+                <Button variant="outlined" onClick={() => setSwitchDialogOpen(true)}>
+                  Trocar foco
+                </Button>
                 <Button variant="outlined" onClick={() => handleOpenQuickNote(focusEntry)}>
                   Nota rapida
                 </Button>
-                <Button onClick={() => handleSchedulePreset(focusEntry, 0)}>Agendar hoje</Button>
-                <Button onClick={() => handleSchedulePreset(focusEntry, 1)}>Agendar amanha</Button>
+                <Button onClick={handleOpenSnoozeMenu}>Adiar</Button>
                 <Button onClick={() => handleSetDueToday(focusEntry)}>Prazo hoje</Button>
               </Stack>
             </Stack>
@@ -563,6 +644,110 @@ export default function FocusPage() {
           >
             {quickNoteSaving ? 'Salvando...' : 'Salvar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+      <Menu
+        anchorEl={snoozeAnchor}
+        open={Boolean(snoozeAnchor)}
+        onClose={handleCloseSnoozeMenu}
+      >
+        <MenuItem
+          onClick={() => {
+            if (focusEntry) {
+              void handleSchedulePreset(focusEntry, 1);
+            }
+            handleCloseSnoozeMenu();
+          }}
+        >
+          Agendar amanha
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (focusEntry) {
+              void handleSchedulePreset(focusEntry, 3);
+            }
+            handleCloseSnoozeMenu();
+          }}
+        >
+          Agendar +3 dias
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (focusEntry) {
+              void handleSchedulePreset(focusEntry, 7);
+            }
+            handleCloseSnoozeMenu();
+          }}
+        >
+          Agendar +7 dias
+        </MenuItem>
+        <MenuItem onClick={handleOpenSnoozeDialog}>Escolher data...</MenuItem>
+        {focusEntry?.row.scheduledDay && (
+          <MenuItem
+            onClick={() => {
+              if (focusEntry) {
+                void setChecklistSnooze(focusEntry.task.noteId, focusEntry.task.blockId, null);
+              }
+              handleCloseSnoozeMenu();
+            }}
+          >
+            Remover agendamento
+          </MenuItem>
+        )}
+      </Menu>
+      <Dialog open={snoozeDialogOpen} onClose={() => setSnoozeDialogOpen(false)}>
+        <DialogTitle>Agendar para</DialogTitle>
+        <DialogContent>
+          <DateField
+            value={snoozeDate}
+            onCommit={(next) => setSnoozeDate(next ?? '')}
+            fullWidth
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSnoozeDialogOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={handleSaveSnoozeDialog}>
+            Salvar
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={switchDialogOpen}
+        onClose={() => setSwitchDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Trocar foco</DialogTitle>
+        <DialogContent>
+          {suggestions.length === 0 ? (
+            <Typography color="text.secondary">Nenhuma sugestao disponivel.</Typography>
+          ) : (
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              {suggestions.map((entry) => (
+                <Box key={entry.row.taskId} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                  <Box>
+                    <Typography variant="subtitle2">{entry.task.text}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {entry.task.noteTitle}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      void handleSetFocus(entry.row.taskId);
+                      setSwitchDialogOpen(false);
+                    }}
+                  >
+                    Focar
+                  </Button>
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSwitchDialogOpen(false)}>Fechar</Button>
         </DialogActions>
       </Dialog>
     </Stack>

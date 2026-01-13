@@ -1212,7 +1212,7 @@ export default function ItemPage() {
           O item solicitado nao existe ou foi removido.
         </Typography>
         <Button variant="contained" onClick={() => navigate('/notes')}>
-          Voltar para Notas
+          Voltar para Registros
         </Button>
       </Stack>
     );
