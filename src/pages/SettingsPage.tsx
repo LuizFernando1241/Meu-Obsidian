@@ -50,6 +50,7 @@ import type { PropertySchema } from '../data/types';
 import type { IndexedTask } from '../tasks/taskIndex';
 import { getTodayISO } from '../tasks/date';
 import { rebuildTaskIndexResumable } from '../tasks/taskIndexRebuild';
+import { useCockpitEnabled } from '../app/featureFlags';
 
 type ImportMode = 'replace' | 'merge';
 type FileSummary = {
@@ -119,6 +120,7 @@ export default function SettingsPage() {
   const [autoBackupBusy, setAutoBackupBusy] = React.useState(false);
   const [autoBackupRestore, setAutoBackupRestore] = React.useState<string | null>(null);
   const [autoBackupDelete, setAutoBackupDelete] = React.useState<string | null>(null);
+  const [cockpitEnabled, setCockpitEnabled] = useCockpitEnabled();
   const schemas = useLiveQuery(() => listSchemas(), []) ?? [];
   const views = useLiveQuery(() => db.views.toArray(), []) ?? [];
   const autoBackups = useLiveQuery(
@@ -663,6 +665,26 @@ export default function SettingsPage() {
             >
               Reconstruir indice de tarefas
             </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader title="Interface" />
+        <CardContent>
+          <Stack spacing={1.5}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={cockpitEnabled}
+                  onChange={(event) => setCockpitEnabled(event.target.checked)}
+                />
+              }
+              label="Cockpit (Hoje, Foco e Inbox como menu principal)"
+            />
+            <Typography color="text.secondary" variant="body2">
+              Ativa a navegacao enxuta. As demais telas ficam em Avancado ou na paleta.
+            </Typography>
           </Stack>
         </CardContent>
       </Card>

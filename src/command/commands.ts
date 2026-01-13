@@ -27,7 +27,9 @@ export type Command =
 export const getStaticCommands = () => ({
   nav: [
     { kind: 'nav', path: '/', title: 'Inicio' },
+    { kind: 'nav', path: '/home', title: 'Hoje (Cockpit)' },
     { kind: 'nav', path: '/focus', title: 'Ir para Agora' },
+    { kind: 'nav', path: '/today', title: 'Hoje (lista)' },
     { kind: 'nav', path: '/tasks', title: 'Tarefas' },
     { kind: 'nav', path: '/backlog', title: 'Ir para Backlog' },
     { kind: 'nav', path: '/inbox', title: 'Ir para Inbox' },

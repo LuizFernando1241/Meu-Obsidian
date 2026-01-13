@@ -6,6 +6,7 @@ import DebugPage from './pages/DebugPage';
 import GraphPage from './pages/GraphPage';
 import HelpPage from './pages/HelpPage';
 import Home from './pages/Home';
+import HomeCockpitPage from './pages/HomeCockpitPage';
 import FocusPage from './pages/FocusPage';
 import ItemPage from './pages/ItemPage';
 import NotesPage from './pages/NotesPage';
@@ -38,6 +39,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route path={routesByKey.home.path} element={<Home />} />
+          <Route path={routesByKey['home-cockpit'].path} element={<HomeCockpitPage />} />
           <Route path={routesByKey.focus.path} element={<FocusPage />} />
           <Route path={routesByKey.review.path} element={<ReviewPage />} />
           <Route path={routesByKey.tasks.path} element={<TasksViewPage />} />

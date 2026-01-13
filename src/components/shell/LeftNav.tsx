@@ -29,6 +29,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { GIT_SHA } from '../../app/buildInfo';
+import { useCockpitEnabled } from '../../app/featureFlags';
 import { NAV_ROUTES } from '../../app/routes';
 import { db } from '../../data/db';
 import { deleteView, upsertView } from '../../data/repo';
@@ -53,7 +54,7 @@ const NAV_ORDER_KEY = 'nav_routes_order_v2';
 const ADVANCED_OPEN_KEY = 'nav_advanced_open';
 const versionLabel = `v-${GIT_SHA}`;
 
-const PRIMARY_NAV_KEYS = [
+const LEGACY_PRIMARY_KEYS = [
   'focus',
   'today',
   'week',
@@ -64,7 +65,25 @@ const PRIMARY_NAV_KEYS = [
   'review',
 ];
 
-const ADVANCED_NAV_KEYS = ['tasks', 'overdue', 'tags', 'graph', 'trash', 'settings', 'help'];
+const LEGACY_ADVANCED_KEYS = ['tasks', 'overdue', 'tags', 'graph', 'trash', 'settings', 'help'];
+
+const COCKPIT_PRIMARY_KEYS = ['home-cockpit', 'focus', 'inbox'];
+
+const COCKPIT_ADVANCED_KEYS = [
+  'today',
+  'week',
+  'backlog',
+  'overdue',
+  'tasks',
+  'projects',
+  'notes',
+  'review',
+  'tags',
+  'graph',
+  'trash',
+  'settings',
+  'help',
+];
 
 const readStored = (key: string) => {
   if (typeof window === 'undefined') {
@@ -146,6 +165,7 @@ export default function LeftNav({
     [views],
   );
   const navByKey = React.useMemo(() => buildNavMap(), []);
+  const [cockpitEnabled] = useCockpitEnabled();
   const [viewDialogOpen, setViewDialogOpen] = React.useState(false);
   const [editingView, setEditingView] = React.useState<SavedView | null>(null);
   const [viewMenuAnchor, setViewMenuAnchor] = React.useState<null | HTMLElement>(null);
@@ -161,19 +181,21 @@ export default function LeftNav({
     () => readStored(ADVANCED_OPEN_KEY) ?? false,
   );
 
-  const primaryItems = React.useMemo(
-    () => buildNavList(PRIMARY_NAV_KEYS, navByKey),
-    [navByKey],
-  );
-  const advancedItems = React.useMemo(
-    () => buildNavList(ADVANCED_NAV_KEYS, navByKey),
-    [navByKey],
-  );
+  const primaryItems = React.useMemo(() => {
+    const keys = cockpitEnabled ? COCKPIT_PRIMARY_KEYS : LEGACY_PRIMARY_KEYS;
+    return buildNavList(keys, navByKey);
+  }, [cockpitEnabled, navByKey]);
+  const advancedItems = React.useMemo(() => {
+    const keys = cockpitEnabled ? COCKPIT_ADVANCED_KEYS : LEGACY_ADVANCED_KEYS;
+    return buildNavList(keys, navByKey);
+  }, [cockpitEnabled, navByKey]);
 
-  const navItems = React.useMemo(
-    () => applyNavOrder(primaryItems, navOrder),
-    [navOrder, primaryItems],
-  );
+  const navItems = React.useMemo(() => {
+    if (cockpitEnabled) {
+      return primaryItems;
+    }
+    return applyNavOrder(primaryItems, navOrder);
+  }, [cockpitEnabled, navOrder, primaryItems]);
 
   React.useEffect(() => {
     if (collapsed) {
@@ -182,11 +204,14 @@ export default function LeftNav({
   }, [collapsed]);
 
   React.useEffect(() => {
+    if (cockpitEnabled) {
+      return;
+    }
     const normalizedOrder = applyNavOrder(primaryItems, navOrder).map((item) => item.key);
     if (!areArraysEqual(normalizedOrder, navOrder)) {
       setNavOrder(normalizedOrder);
     }
-  }, [navOrder, primaryItems]);
+  }, [cockpitEnabled, navOrder, primaryItems]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') {
@@ -471,7 +496,7 @@ export default function LeftNav({
             Navegacao
           </Typography>
         )}
-        {renderNavList(navItems, { draggable: true })}
+        {renderNavList(navItems, { draggable: !cockpitEnabled })}
         <Divider />
         <List disablePadding>
           <ListItemButton

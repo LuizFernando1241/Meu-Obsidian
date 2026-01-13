@@ -28,6 +28,7 @@ export type AppRoute = {
 
 export const NAV_ROUTES: AppRoute[] = [
   { key: 'home', label: 'Inicio', path: '/', icon: HomeOutlined, showInNav: false },
+  { key: 'home-cockpit', label: 'Hoje', path: '/home', icon: TodayOutlined, showInNav: false },
   { key: 'focus', label: 'Agora', path: '/focus', icon: Bolt, showInNav: true },
   { key: 'today', label: 'Hoje', path: '/today', icon: TodayOutlined, showInNav: true },
   { key: 'week', label: 'Semana', path: '/week', icon: ViewWeekOutlined, showInNav: true },
