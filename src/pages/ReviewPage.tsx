@@ -112,18 +112,6 @@ export default function ReviewPage() {
     () => tasksIndex.filter((row) => row.status !== 'DONE'),
     [tasksIndex],
   );
-  const openTasks = React.useMemo(
-    () =>
-      openRows.map((row) =>
-        mapTaskIndexRow(
-          row,
-          notesById.get(row.noteId),
-          pathCache.get(row.noteId),
-          todayISO,
-        ),
-      ),
-    [notesById, openRows, pathCache, todayISO],
-  );
   const upcomingISO = toISODate(addDays(new Date(), UPCOMING_DAYS));
 
   const overdueTasks = React.useMemo(

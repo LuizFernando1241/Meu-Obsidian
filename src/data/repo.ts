@@ -533,7 +533,7 @@ export const updateChecklistBlock = async (
   blockId: string,
   patch: Partial<ChecklistBlock>,
 ): Promise<void> => {
-  let updatedItem: NoteNode | null = null;
+  let updatedItemId: string | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -563,12 +563,12 @@ export const updateChecklistBlock = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
-      updatedItem = nextItem;
+      updatedItemId = nextItem.id;
       await db.items.put(nextItem);
     }),
   );
-  if (updatedItem) {
-    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  if (updatedItemId) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItemId });
   }
   notifyLocalChange();
 };
@@ -595,7 +595,7 @@ export const updateChecklistMeta = async (
   blockId: string,
   patch: Partial<ChecklistBlock['meta']>,
 ): Promise<void> => {
-  let updatedItem: NoteNode | null = null;
+  let updatedItemId: string | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -629,12 +629,12 @@ export const updateChecklistMeta = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
-      updatedItem = nextItem;
+      updatedItemId = nextItem.id;
       await db.items.put(nextItem);
     }),
   );
-  if (updatedItem) {
-    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  if (updatedItemId) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItemId });
   }
   notifyLocalChange();
 };
@@ -644,7 +644,7 @@ export const toggleChecklist = async (
   blockId: string,
   checked: boolean,
 ): Promise<void> => {
-  let updatedItem: NoteNode | null = null;
+  let updatedItemId: string | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -697,12 +697,12 @@ export const toggleChecklist = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
-      updatedItem = nextItem;
+      updatedItemId = nextItem.id;
       await db.items.put(nextItem);
     }),
   );
-  if (updatedItem) {
-    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  if (updatedItemId) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItemId });
   }
   notifyLocalChange();
 };
@@ -718,7 +718,7 @@ export const setChecklistSnooze = async (
   blockId: string,
   snoozedUntil: string | null,
 ): Promise<void> => {
-  let updatedItem: NoteNode | null = null;
+  let updatedItemId: string | null = null;
   await enqueueItemWrite(noteId, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(noteId);
@@ -756,12 +756,12 @@ export const setChecklistSnooze = async (
         rev: (current.rev ?? 1) + 1,
         updatedAt: Date.now(),
       };
-      updatedItem = nextItem;
+      updatedItemId = nextItem.id;
       await db.items.put(nextItem);
     }),
   );
-  if (updatedItem) {
-    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItem.id });
+  if (updatedItemId) {
+    emitIndexerEvent({ type: 'NOTE_SAVED', noteId: updatedItemId });
   }
   notifyLocalChange();
 };
@@ -786,7 +786,7 @@ export const deleteNode = async (id: string) => {
 };
 
 export const softDeleteNode = async (id: string) => {
-  let updatedItem: NoteNode | null = null;
+  let updatedItemId: string | null = null;
   await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, db.snapshots, async () => {
       const current = await db.items.get(id);
@@ -806,18 +806,18 @@ export const softDeleteNode = async (id: string) => {
       });
       const nextItem = await db.items.get(id);
       if (nextItem && nextItem.nodeType === 'note') {
-        updatedItem = nextItem as NoteNode;
+        updatedItemId = nextItem.id;
       }
     }),
   );
-  if (updatedItem) {
-    emitIndexerEvent({ type: 'NOTE_DELETED', noteId: updatedItem.id });
+  if (updatedItemId) {
+    emitIndexerEvent({ type: 'NOTE_DELETED', noteId: updatedItemId });
   }
   notifyLocalChange();
 };
 
 export const restoreNode = async (id: string) => {
-  let updatedItem: NoteNode | null = null;
+  let updatedItemId: string | null = null;
   await enqueueItemWrite(id, async () =>
     db.transaction('rw', db.items, async () => {
       const current = await db.items.get(id);
@@ -834,19 +834,22 @@ export const restoreNode = async (id: string) => {
       });
       const nextItem = await db.items.get(id);
       if (nextItem && nextItem.nodeType === 'note') {
-        updatedItem = nextItem as NoteNode;
+        updatedItemId = nextItem.id;
       }
     }),
   );
-  if (updatedItem) {
-    emitIndexerEvent({ type: 'NOTE_RESTORED', noteId: updatedItem.id });
+  if (updatedItemId) {
+    emitIndexerEvent({ type: 'NOTE_RESTORED', noteId: updatedItemId });
   }
   notifyLocalChange();
 };
 
 export const deleteNodePermanently = async (id: string) => {
   await enqueueItemWrite(id, async () =>
-    db.transaction('rw', db.items, db.tombstones, db.snapshots, db.tasks_index, async () => {
+    db.transaction(
+      'rw',
+      [db.items, db.tombstones, db.snapshots, db.tasks_index],
+      async () => {
       const current = await db.items.get(id);
       if (!current) {
         return;
@@ -862,7 +865,8 @@ export const deleteNodePermanently = async (id: string) => {
       if (current.nodeType === 'note') {
         await db.tasks_index.where('noteId').equals(id).delete();
       }
-    }),
+      },
+    ),
   );
   notifyLocalChange();
 };

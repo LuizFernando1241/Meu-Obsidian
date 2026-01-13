@@ -64,15 +64,17 @@ export const applyMergedToLocal = async (merged: Vault): Promise<void> => {
 
   await db.transaction(
     'rw',
-    db.items,
-    db.tombstones,
-    db.views,
-    db.schemas,
-    db.tasks_index,
-    db.user_state,
-    db.inbox_items,
-    db.app_meta,
-    db.index_jobs,
+    [
+      db.items,
+      db.tombstones,
+      db.views,
+      db.schemas,
+      db.tasks_index,
+      db.user_state,
+      db.inbox_items,
+      db.app_meta,
+      db.index_jobs,
+    ],
     async () => {
     if (tombstones.length > 0) {
       await db.tombstones.bulkPut(tombstones);
