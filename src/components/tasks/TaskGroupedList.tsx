@@ -20,7 +20,7 @@ import type { IndexedTask } from '../../tasks/taskIndex';
 import { addDaysISO, getTodayISO } from '../../tasks/date';
 import { useTaskSelection } from '../../store/useTaskSelection';
 
-type GroupMode = 'path' | 'note' | 'none';
+type GroupMode = 'path' | 'note' | 'project' | 'area' | 'none';
 
 type NoteGroup = { kind: 'note'; key: string; label: string; tasks: IndexedTask[] };
 type AllGroup = { kind: 'all'; key: string; label: string; tasks: IndexedTask[] };
@@ -30,7 +30,8 @@ type PathGroup = {
   label: string;
   notes: { key: string; label: string; tasks: IndexedTask[] }[];
 };
-type TaskGroup = NoteGroup | AllGroup | PathGroup;
+type FlatGroup = { kind: 'group'; key: string; label: string; tasks: IndexedTask[] };
+type TaskGroup = NoteGroup | AllGroup | PathGroup | FlatGroup;
 
 type TaskGroupedListProps = {
   tasks: IndexedTask[];
@@ -42,10 +43,15 @@ type TaskGroupedListProps = {
   onUpdateDue: (task: IndexedTask, due: string | null) => void;
   onUpdateStatus?: (task: IndexedTask, status: 'open' | 'doing' | 'waiting') => void;
   onUpdatePriority?: (task: IndexedTask, priority: 'P1' | 'P2' | 'P3' | null) => void;
+  onUpdateNextAction?: (task: IndexedTask, next: boolean) => void;
   onUpdateRecurrence?: (task: IndexedTask, recurrence: 'weekly' | 'monthly' | null) => void;
   onSnooze?: (task: IndexedTask, snoozedUntil: string | null) => void;
   onClearSnooze?: (task: IndexedTask) => void;
+  groupLabelLookup?: Map<string, string>;
+  emptyGroupLabel?: string;
   showMetaControls?: boolean;
+  showAged?: boolean;
+  agedCutoffMs?: number;
   enableShortcuts?: boolean;
 };
 
@@ -94,10 +100,15 @@ export default function TaskGroupedList({
   onUpdateDue,
   onUpdateStatus,
   onUpdatePriority,
+  onUpdateNextAction,
   onUpdateRecurrence,
   onSnooze,
   onClearSnooze,
+  groupLabelLookup,
+  emptyGroupLabel,
   showMetaControls = false,
+  showAged = false,
+  agedCutoffMs,
   enableShortcuts = true,
 }: TaskGroupedListProps) {
   const setSelectedTask = useTaskSelection((state) => state.setSelectedTask);
@@ -152,6 +163,27 @@ export default function TaskGroupedList({
       }));
     }
 
+    if (groupMode === 'project' || groupMode === 'area') {
+      const map = new Map<string, { label: string; tasks: IndexedTask[] }>();
+      tasks.forEach((task) => {
+        const key = groupMode === 'project' ? task.projectId ?? '' : task.areaId ?? '';
+        const fallbackLabel =
+          key ||
+          emptyGroupLabel ||
+          (groupMode === 'project' ? 'Sem projeto' : 'Sem area');
+        const label = groupLabelLookup?.get(key) ?? fallbackLabel;
+        const entry = map.get(key) ?? { label, tasks: [] };
+        entry.tasks.push(task);
+        map.set(key, entry);
+      });
+      return Array.from(map.entries()).map(([key, entry]) => ({
+        kind: 'group',
+        key,
+        label: entry.label,
+        tasks: entry.tasks,
+      }));
+    }
+
     const pathMap = new Map<
       string,
       Map<string, { label: string; tasks: IndexedTask[] }>
@@ -178,16 +210,31 @@ export default function TaskGroupedList({
         tasks: entry.tasks,
       })),
     }));
-  }, [groupMode, tasks]);
+  }, [emptyGroupLabel, groupLabelLookup, groupMode, tasks]);
+
+  const getGroupStorageKey = React.useCallback(
+    (group: TaskGroup) => {
+      if (group.kind === 'path') {
+        return `${storageKey}:path:${group.key}`;
+      }
+      if (group.kind === 'note') {
+        return `${storageKey}:note:${group.key}`;
+      }
+      return `${storageKey}:group:${group.key}`;
+    },
+    [storageKey],
+  );
 
   const visibleTasks = React.useMemo(() => {
     if (groupMode === 'none') {
       return tasks;
     }
-    if (groupMode === 'note') {
+    if (groupMode === 'note' || groupMode === 'project' || groupMode === 'area') {
       return grouped.flatMap((group) =>
-        group.kind === 'note' && getExpanded(`${storageKey}:note:${group.key}`)
-          ? group.tasks
+        group.kind === 'note' || group.kind === 'group'
+          ? getExpanded(getGroupStorageKey(group))
+            ? group.tasks
+            : []
           : [],
       );
     }
@@ -203,7 +250,7 @@ export default function TaskGroupedList({
         getExpanded(`${storageKey}:note:${note.key}`) ? note.tasks : [],
       );
     });
-  }, [groupMode, grouped, getExpanded, storageKey, tasks]);
+  }, [getExpanded, getGroupStorageKey, groupMode, grouped, tasks]);
 
   React.useEffect(() => {
     if (selectedId && visibleTasks.some((task) => taskKey(task) === selectedId)) {
@@ -287,6 +334,12 @@ export default function TaskGroupedList({
       setDueValue(current.due ?? '');
       return;
     }
+    if (key === 's' && onSnooze) {
+      event.preventDefault();
+      const next = addDaysISO(getTodayISO(), 1);
+      onSnooze(current, next);
+      return;
+    }
     if (key === 'z' && onSnooze) {
       event.preventDefault();
       const next = addDaysISO(getTodayISO(), 1);
@@ -298,7 +351,12 @@ export default function TaskGroupedList({
       cyclePriority(current);
       return;
     }
-    if (key === 's') {
+    if (key === 'x' && onUpdateNextAction) {
+      event.preventDefault();
+      onUpdateNextAction(current, !current.isNextAction);
+      return;
+    }
+    if (key === 't') {
       event.preventDefault();
       cycleStatus(current);
       return;
@@ -336,6 +394,8 @@ export default function TaskGroupedList({
           onSnooze={onSnooze}
           onClearSnooze={onClearSnooze}
           showMetaControls={showMetaControls}
+          showAged={showAged}
+          agedCutoffMs={agedCutoffMs}
           selectedTaskId={selectedId ?? undefined}
           onSelectTask={handleSelectTask}
         />
@@ -366,9 +426,7 @@ export default function TaskGroupedList({
       <Stack spacing={2}>
         {grouped.map((group) => {
           const isPathMode = group.kind === 'path';
-          const groupKey = isPathMode
-            ? `${storageKey}:path:${group.key}`
-            : `${storageKey}:note:${group.key}`;
+          const groupKey = getGroupStorageKey(group);
           const expanded = getExpanded(groupKey, true);
           const taskCount = isPathMode
             ? group.notes.reduce(
@@ -438,6 +496,8 @@ export default function TaskGroupedList({
                               onSnooze={onSnooze}
                               onClearSnooze={onClearSnooze}
                               showMetaControls={showMetaControls}
+                              showAged={showAged}
+                              agedCutoffMs={agedCutoffMs}
                               selectedTaskId={selectedId ?? undefined}
                               onSelectTask={handleSelectTask}
                             />
@@ -459,6 +519,8 @@ export default function TaskGroupedList({
                     onSnooze={onSnooze}
                     onClearSnooze={onClearSnooze}
                     showMetaControls={showMetaControls}
+                    showAged={showAged}
+                    agedCutoffMs={agedCutoffMs}
                     selectedTaskId={selectedId ?? undefined}
                     onSelectTask={handleSelectTask}
                   />

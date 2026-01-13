@@ -21,12 +21,12 @@ import DateField from '../../components/DateField';
 import { useNotifier } from '../../components/Notifier';
 import { db } from '../../data/db';
 import type { Node, NoteNode } from '../../data/types';
+import { setChecklistDue, setChecklistSnooze, toggleChecklist } from '../../data/repo';
 import {
-  setChecklistDue,
-  setChecklistSnooze,
-  toggleChecklist,
-  updateChecklistMeta,
-} from '../../data/repo';
+  setTaskNextAction,
+  setTaskPriority,
+  setTaskStatus,
+} from '../../tasks/taskIndexStore';
 
 type TaskDetailsPanelProps = {
   task: IndexedTask;
@@ -71,7 +71,7 @@ export default function TaskDetailsPanel({ task, onClear }: TaskDetailsPanelProp
   const areaDisplay = areaNode?.title ?? areaLabel;
   const [scheduledValue, setScheduledValue] = React.useState(task.snoozedUntil ?? '');
   const [dueValue, setDueValue] = React.useState(task.due ?? '');
-  const [nextAction, setNextAction] = React.useState(false);
+  const [nextAction, setNextAction] = React.useState(Boolean(task.isNextAction));
 
   React.useEffect(() => {
     setScheduledValue(task.snoozedUntil ?? '');
@@ -79,15 +79,8 @@ export default function TaskDetailsPanel({ task, onClear }: TaskDetailsPanelProp
   }, [task.due, task.snoozedUntil]);
 
   React.useEffect(() => {
-    if (!note || note.nodeType !== 'note') {
-      setNextAction(false);
-      return;
-    }
-    const blocks = Array.isArray(note.content) ? note.content : [];
-    const match = blocks.find((block) => block.id === task.blockId);
-    const next = Boolean(match?.meta && typeof match.meta === 'object' && match.meta.isNextAction);
-    setNextAction(next);
-  }, [note, task.blockId]);
+    setNextAction(Boolean(task.isNextAction));
+  }, [task.isNextAction]);
 
   const handleOpenNote = () => {
     navigate(`/item/${task.noteId}`, { state: { highlightBlockId: task.blockId } });
@@ -122,7 +115,7 @@ export default function TaskDetailsPanel({ task, onClear }: TaskDetailsPanelProp
 
   const handleUpdateStatus = async (status: 'open' | 'doing' | 'waiting') => {
     try {
-      await updateChecklistMeta(task.noteId, task.blockId, { status });
+      await setTaskStatus(task.noteId, task.blockId, status);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao atualizar status: ${message}`);
@@ -131,7 +124,7 @@ export default function TaskDetailsPanel({ task, onClear }: TaskDetailsPanelProp
 
   const handleUpdatePriority = async (priority: 'P1' | 'P2' | 'P3' | null) => {
     try {
-      await updateChecklistMeta(task.noteId, task.blockId, { priority: priority ?? undefined });
+      await setTaskPriority(task.noteId, task.blockId, priority);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao atualizar prioridade: ${message}`);
@@ -141,7 +134,7 @@ export default function TaskDetailsPanel({ task, onClear }: TaskDetailsPanelProp
   const handleToggleNextAction = async (checked: boolean) => {
     setNextAction(checked);
     try {
-      await updateChecklistMeta(task.noteId, task.blockId, { isNextAction: checked });
+      await setTaskNextAction(task.noteId, task.blockId, checked);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao atualizar next action: ${message}`);

@@ -12,9 +12,11 @@ export type IndexedTask = {
   effectiveDue?: string | null;
   isSnoozed?: boolean;
   doneAt?: number | null;
+  createdAt?: number;
   priority?: 'P1' | 'P2' | 'P3';
   status?: 'open' | 'doing' | 'waiting';
   recurrence?: 'weekly' | 'monthly';
+  isNextAction?: boolean;
   projectId?: string;
   areaId?: string;
   noteTitle: string;
@@ -71,9 +73,11 @@ export const extractTasksFromNote = (note: NoteNode, todayISO: string): IndexedT
       effectiveDue,
       isSnoozed,
       doneAt: block.doneAt ?? null,
+      createdAt: block.createdAt ?? note.createdAt ?? Date.now(),
       priority: meta?.priority ?? mapLegacyPriority(block.priority),
       status: meta?.status ?? 'open',
       recurrence: meta?.recurrence,
+      isNextAction: Boolean(meta?.isNextAction),
       noteTitle,
       updatedAt: note.updatedAt,
       rev: note.rev ?? 0,

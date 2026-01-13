@@ -128,9 +128,12 @@ const resolveTitle = (block: Block) => {
   return text || 'Checklist';
 };
 
-const resolveStatus = (block: Block): TaskIndexStatus => {
+const resolveStatus = (block: Block, existingStatus?: TaskIndexStatus): TaskIndexStatus => {
   if (block.checked) {
     return 'DONE';
+  }
+  if (existingStatus && existingStatus !== 'DONE') {
+    return existingStatus;
   }
   const status = block.meta?.status;
   if (status === 'doing') {
@@ -142,7 +145,10 @@ const resolveStatus = (block: Block): TaskIndexStatus => {
   return 'TODO';
 };
 
-const resolvePriority = (block: Block): TaskPriority => {
+const resolvePriority = (block: Block, existingPriority?: TaskPriority): TaskPriority => {
+  if (existingPriority) {
+    return existingPriority;
+  }
   const priority = block.meta?.priority;
   if (priority === 'P1' || priority === 'P2' || priority === 'P3') {
     return priority;
@@ -159,6 +165,9 @@ const resolvePriority = (block: Block): TaskPriority => {
   return DEFAULT_PRIORITY;
 };
 
+const resolveNextAction = (block: Block, existingNext?: boolean): boolean =>
+  typeof existingNext === 'boolean' ? existingNext : Boolean(block.meta?.isNextAction);
+
 const normalizeDay = (value?: string | null) => {
   if (!value || typeof value !== 'string') {
     return undefined;
@@ -173,6 +182,7 @@ export const buildTaskIndexRows = (
   now = Date.now(),
   userId = DEFAULT_USER_ID,
   context?: TaskIndexContext,
+  existingRows?: TaskIndexRow[],
 ): TaskIndexRow[] => {
   const content = Array.isArray(note.content) ? note.content : [];
   const space = context?.space ?? resolveSpace(note);
@@ -180,6 +190,9 @@ export const buildTaskIndexRows = (
   const areaId = context?.areaId ?? resolveAreaId(note);
   const folderId = note.parentId ?? null;
   const createdAtFallback = note.createdAt ?? now;
+  const existingById = new Map(
+    (existingRows ?? []).map((row) => [row.taskId, row] as const),
+  );
 
   return content
     .map((block, index) => ({ block, index }))
@@ -187,6 +200,7 @@ export const buildTaskIndexRows = (
     .map(({ block, index }) => {
       const itemId = block.taskId ?? block.id;
       const taskId = buildTaskId(note.id, block.id, itemId);
+      const existing = existingById.get(taskId);
       const title = resolveTitle(block);
       const baseRow: Omit<TaskIndexRow, 'updatedAt' | 'sourceHash'> = {
         taskId,
@@ -198,15 +212,15 @@ export const buildTaskIndexRows = (
         itemId,
         title,
         titleNorm: normalizeTitle(title),
-        status: resolveStatus(block),
-        priority: resolvePriority(block),
+        status: resolveStatus(block, existing?.status),
+        priority: resolvePriority(block, existing?.priority),
         scheduledDay: normalizeDay(block.snoozedUntil ?? undefined),
         dueDay: normalizeDay(block.due ?? undefined),
         completedAt:
           typeof block.doneAt === 'number' && Number.isFinite(block.doneAt)
             ? block.doneAt
             : undefined,
-        isNextAction: Boolean(block.meta?.isNextAction),
+        isNextAction: resolveNextAction(block, existing?.isNextAction),
         orderKey: index,
         estimateMin: undefined,
         projectId,
@@ -234,11 +248,13 @@ export const syncTasksIndexForNote = async (
       : {};
   const isDeleted = typeof props.deletedAt === 'number' && Number.isFinite(props.deletedAt);
   const projectId = isDeleted ? undefined : await resolveProjectIdFromDb(note);
-  const rows = isDeleted ? [] : buildTaskIndexRows(note, now, DEFAULT_USER_ID, { projectId });
 
   await db.transaction('rw', db.tasks_index, async () => {
     const existing = await db.tasks_index.where('noteId').equals(note.id).toArray();
-    const diff = diffTaskIndexRows(existing, rows, now);
+    const mergedRows = isDeleted
+      ? []
+      : buildTaskIndexRows(note, now, DEFAULT_USER_ID, { projectId }, existing);
+    const diff = diffTaskIndexRows(existing, mergedRows, now);
 
     if (diff.toDeleteTaskIds.length > 0) {
       await db.tasks_index.bulkDelete(diff.toDeleteTaskIds);
@@ -248,6 +264,75 @@ export const syncTasksIndexForNote = async (
     }
   });
 };
+
+type TaskIndexPatch = Partial<Pick<TaskIndexRow, 'status' | 'priority' | 'isNextAction'>>;
+
+const applyTaskPatch = (row: TaskIndexRow, patch: TaskIndexPatch, now: number) => {
+  const next = { ...row, ...patch, updatedAt: now };
+  const { updatedAt, sourceHash, ...hashBase } = next;
+  return { ...next, sourceHash: buildTaskSourceHash(hashBase) };
+};
+
+const findTaskRow = async (noteId: string, blockId: string) =>
+  db.tasks_index
+    .where('noteId')
+    .equals(noteId)
+    .filter((row) => row.blockId === blockId)
+    .first();
+
+const updateTaskIndexRow = async (
+  noteId: string,
+  blockId: string,
+  patch: TaskIndexPatch,
+): Promise<void> => {
+  const now = Date.now();
+  await db.transaction('rw', db.tasks_index, async () => {
+    const row = await findTaskRow(noteId, blockId);
+    if (!row) {
+      throw new Error('Tarefa nao encontrada.');
+    }
+    const updates: TaskIndexRow[] = [];
+    if (patch.isNextAction && row.projectId) {
+      const sameProject = await db.tasks_index.where('projectId').equals(row.projectId).toArray();
+      sameProject.forEach((other) => {
+        if (other.taskId !== row.taskId && other.isNextAction) {
+          updates.push(applyTaskPatch(other, { isNextAction: false }, now));
+        }
+      });
+    }
+    updates.push(applyTaskPatch(row, patch, now));
+    if (updates.length === 1) {
+      await db.tasks_index.put(updates[0]);
+    } else {
+      await db.tasks_index.bulkPut(updates);
+    }
+  });
+};
+
+export const setTaskStatus = async (
+  noteId: string,
+  blockId: string,
+  status: 'open' | 'doing' | 'waiting',
+): Promise<void> => {
+  const nextStatus: TaskIndexStatus =
+    status === 'doing' ? 'DOING' : status === 'waiting' ? 'WAITING' : 'TODO';
+  await updateTaskIndexRow(noteId, blockId, { status: nextStatus });
+};
+
+export const setTaskPriority = async (
+  noteId: string,
+  blockId: string,
+  priority: 'P1' | 'P2' | 'P3' | null,
+): Promise<void> => {
+  const nextPriority: TaskPriority = priority ?? 'P4';
+  await updateTaskIndexRow(noteId, blockId, { priority: nextPriority });
+};
+
+export const setTaskNextAction = async (
+  noteId: string,
+  blockId: string,
+  isNextAction: boolean,
+): Promise<void> => updateTaskIndexRow(noteId, blockId, { isNextAction });
 
 export const removeTasksIndexForNoteId = async (noteId: string): Promise<void> => {
   await db.tasks_index.where('noteId').equals(noteId).delete();

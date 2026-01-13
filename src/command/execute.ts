@@ -1,12 +1,13 @@
 import type { NavigateFunction } from 'react-router-dom';
 
-import { createFolder, createNote, setChecklistDue, setChecklistSnooze, updateChecklistMeta } from '../data/repo';
+import { createFolder, createNote, setChecklistDue, setChecklistSnooze } from '../data/repo';
 import { db } from '../data/db';
 import type { Block, Node, NoteNode, Space } from '../data/types';
 import { setFocusTask } from '../data/focus';
 import { addDaysISO, getTodayISO, toISODate } from '../tasks/date';
 import type { IndexedTask } from '../tasks/taskIndex';
 import { buildTaskId } from '../tasks/indexerContract';
+import { setTaskNextAction } from '../tasks/taskIndexStore';
 import { useTaskSelection } from '../store/useTaskSelection';
 import type { Command } from './commands';
 import { parseInput } from './parser';
@@ -75,12 +76,8 @@ export const executeCommand = async (
       return;
     }
     if (command.action === 'toggle-next-action') {
-      const note = (await db.items.get(task.noteId)) as NoteNode | undefined;
-      const block = Array.isArray(note?.content)
-        ? (note?.content.find((entry) => entry.id === task.blockId) as Block | undefined)
-        : undefined;
-      const current = Boolean(block?.meta && (block.meta as { isNextAction?: boolean }).isNextAction);
-      await updateChecklistMeta(task.noteId, task.blockId, { isNextAction: !current });
+      const current = Boolean(task.isNextAction);
+      await setTaskNextAction(task.noteId, task.blockId, !current);
       return;
     }
     if (command.action === 'set-focus') {

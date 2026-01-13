@@ -5,16 +5,27 @@ import {
   Card,
   CardContent,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
 
 import { useNotifier } from '../components/Notifier';
 import { db } from '../data/db';
 import { filterActiveNodes } from '../data/deleted';
-import { setChecklistDue, setChecklistSnooze, toggleChecklist } from '../data/repo';
+import {
+  appendNoteBlock,
+  setChecklistDue,
+  setChecklistSnooze,
+  toggleChecklist,
+} from '../data/repo';
 import {
   enqueueFocusTask,
   removeFocusTask,
@@ -25,6 +36,7 @@ import type { NoteNode, TaskIndexRow } from '../data/types';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { addDaysISO, getTodayISO } from '../tasks/date';
 import { mapTaskIndexRow } from '../tasks/taskIndexView';
+import { setTaskStatus } from '../tasks/taskIndexStore';
 import { buildPathCache, type PathInfo } from '../vault/pathCache';
 
 const DEFAULT_USER_ID = 'local';
@@ -99,6 +111,18 @@ export default function FocusPage() {
   const queueEntries = focusQueue
     .map((taskId) => focusEntries.get(taskId))
     .filter((entry): entry is FocusEntry => Boolean(entry));
+  const [quickNoteOpen, setQuickNoteOpen] = React.useState(false);
+  const [quickNoteText, setQuickNoteText] = React.useState('');
+  const [quickNoteTarget, setQuickNoteTarget] = React.useState<FocusEntry | null>(null);
+  const [quickNoteSaving, setQuickNoteSaving] = React.useState(false);
+  const handleCloseQuickNote = React.useCallback(() => {
+    if (quickNoteSaving) {
+      return;
+    }
+    setQuickNoteOpen(false);
+    setQuickNoteTarget(null);
+    setQuickNoteText('');
+  }, [quickNoteSaving]);
 
   const suggestions = React.useMemo(() => {
     const rows = tasksIndex.filter((row) => row.status !== 'DONE');
@@ -177,6 +201,48 @@ export default function FocusPage() {
     }
   };
 
+  const handleToggleStart = async (entry: FocusEntry) => {
+    try {
+      const nextStatus = entry.row.status === 'DOING' ? 'open' : 'doing';
+      await setTaskStatus(entry.task.noteId, entry.task.blockId, nextStatus);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar status: ${message}`);
+    }
+  };
+
+  const handleOpenQuickNote = React.useCallback((entry: FocusEntry) => {
+    setQuickNoteTarget(entry);
+    setQuickNoteText('');
+    setQuickNoteOpen(true);
+  }, []);
+
+  const handleSaveQuickNote = async () => {
+    const target = quickNoteTarget ?? focusEntry;
+    const trimmed = quickNoteText.trim();
+    if (!target || !trimmed) {
+      return;
+    }
+    setQuickNoteSaving(true);
+    try {
+      await appendNoteBlock(target.task.noteId, {
+        id: uuidv4(),
+        type: 'paragraph',
+        text: trimmed,
+        createdAt: Date.now(),
+      });
+      notifier.success('Nota rapida adicionada');
+      setQuickNoteOpen(false);
+      setQuickNoteTarget(null);
+      setQuickNoteText('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao salvar nota: ${message}`);
+    } finally {
+      setQuickNoteSaving(false);
+    }
+  };
+
   const handleSchedulePreset = async (entry: FocusEntry, days: number) => {
     try {
       const next = addDaysISO(todayISO, days);
@@ -231,6 +297,118 @@ export default function FocusPage() {
       notifier.error(`Erro ao limpar fila: ${message}`);
     }
   };
+
+  const handleMoveFocus = React.useCallback(
+    async (direction: 1 | -1) => {
+      if (focusQueue.length === 0) {
+        return;
+      }
+      const currentId = focusState?.focusTaskId ?? null;
+      const nextId = direction === 1 ? focusQueue[0] : focusQueue[focusQueue.length - 1];
+      if (!nextId) {
+        return;
+      }
+      const remainder =
+        direction === 1 ? focusQueue.slice(1) : focusQueue.slice(0, focusQueue.length - 1);
+      const withoutCurrent = currentId
+        ? remainder.filter((entry) => entry !== currentId)
+        : remainder;
+      const nextQueue =
+        currentId && currentId !== nextId
+          ? direction === 1
+            ? [...withoutCurrent, currentId]
+            : [currentId, ...withoutCurrent]
+          : withoutCurrent;
+      await setFocusQueue(space, nextQueue);
+      await setFocusTask(space, nextId);
+    },
+    [focusQueue, focusState?.focusTaskId, space],
+  );
+
+  React.useEffect(() => {
+    const shouldIgnore = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return true;
+      }
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return false;
+      }
+      const tag = target.tagName?.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || target.isContentEditable;
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnore(event)) {
+        return;
+      }
+      if (event.code === 'Space' || event.key === ' ') {
+        event.preventDefault();
+        if (focusEntry) {
+          void handleComplete(focusEntry);
+        }
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (focusEntry) {
+          void handleToggleStart(focusEntry);
+        }
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'j') {
+        event.preventDefault();
+        void handleMoveFocus(1);
+        return;
+      }
+      if (key === 'k') {
+        event.preventDefault();
+        void handleMoveFocus(-1);
+        return;
+      }
+      if (key === 's') {
+        event.preventDefault();
+        if (focusEntry) {
+          void handleSchedulePreset(focusEntry, 1);
+        }
+        return;
+      }
+      if (key === 'd') {
+        event.preventDefault();
+        if (focusEntry) {
+          void handleSetDueToday(focusEntry);
+        }
+        return;
+      }
+      if (key === 'n') {
+        event.preventDefault();
+        if (focusEntry) {
+          handleOpenQuickNote(focusEntry);
+        }
+        return;
+      }
+      if (key === 'f') {
+        event.preventDefault();
+        if (!focusEntry && suggestions.length > 0) {
+          void handleSetFocus(suggestions[0].row.taskId);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    handleComplete,
+    handleSetFocus,
+    focusEntry,
+    handleMoveFocus,
+    handleOpenQuickNote,
+    handleSchedulePreset,
+    handleSetDueToday,
+    handleToggleStart,
+    suggestions,
+  ]);
 
   return (
     <Stack spacing={3}>
@@ -301,8 +479,14 @@ export default function FocusPage() {
                 <Button variant="contained" onClick={() => handleComplete(focusEntry)}>
                   Concluir
                 </Button>
+                <Button variant="outlined" onClick={() => handleToggleStart(focusEntry)}>
+                  {focusEntry.row.status === 'DOING' ? 'Pausar' : 'Iniciar'}
+                </Button>
                 <Button variant="outlined" onClick={() => handleOpenTask(focusEntry)}>
                   Abrir contexto
+                </Button>
+                <Button variant="outlined" onClick={() => handleOpenQuickNote(focusEntry)}>
+                  Nota rapida
                 </Button>
                 <Button onClick={() => handleSchedulePreset(focusEntry, 0)}>Agendar hoje</Button>
                 <Button onClick={() => handleSchedulePreset(focusEntry, 1)}>Agendar amanha</Button>
@@ -349,6 +533,38 @@ export default function FocusPage() {
           </Stack>
         )}
       </Stack>
+      <Dialog
+        open={quickNoteOpen}
+        onClose={handleCloseQuickNote}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Nota rapida</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Conteudo"
+            value={quickNoteText}
+            onChange={(event) => setQuickNoteText(event.target.value)}
+            fullWidth
+            multiline
+            minRows={3}
+            sx={{ mt: 1 }}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseQuickNote} disabled={quickNoteSaving}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveQuickNote}
+            disabled={quickNoteSaving || !quickNoteText.trim()}
+          >
+            {quickNoteSaving ? 'Salvando...' : 'Salvar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

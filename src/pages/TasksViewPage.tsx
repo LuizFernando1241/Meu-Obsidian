@@ -21,6 +21,7 @@ import {
   toggleChecklist,
   updateChecklistMeta,
 } from '../data/repo';
+import { setTaskNextAction, setTaskPriority, setTaskStatus } from '../tasks/taskIndexStore';
 import type { NoteNode } from '../data/types';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { addDaysISO, getTodayISO } from '../tasks/date';
@@ -199,7 +200,7 @@ export default function TasksViewPage() {
     status: 'open' | 'doing' | 'waiting',
   ) => {
     try {
-      await updateChecklistMeta(task.noteId, task.blockId, { status });
+      await setTaskStatus(task.noteId, task.blockId, status);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao atualizar status: ${message}`);
@@ -211,10 +212,19 @@ export default function TasksViewPage() {
     priority: 'P1' | 'P2' | 'P3' | null,
   ) => {
     try {
-      await updateChecklistMeta(task.noteId, task.blockId, { priority: priority ?? undefined });
+      await setTaskPriority(task.noteId, task.blockId, priority);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       notifier.error(`Erro ao atualizar prioridade: ${message}`);
+    }
+  };
+
+  const handleUpdateNextAction = async (task: IndexedTask, next: boolean) => {
+    try {
+      await setTaskNextAction(task.noteId, task.blockId, next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar next action: ${message}`);
     }
   };
 
@@ -357,6 +367,7 @@ export default function TasksViewPage() {
         onUpdateDue={handleUpdateDue}
         onUpdateStatus={handleUpdateStatus}
         onUpdatePriority={handleUpdatePriority}
+        onUpdateNextAction={handleUpdateNextAction}
         onUpdateRecurrence={handleUpdateRecurrence}
         onSnooze={handleSnooze}
         onClearSnooze={handleClearSnooze}

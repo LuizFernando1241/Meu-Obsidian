@@ -1,5 +1,5 @@
 import React from 'react';
-import { Stack, Typography } from '@mui/material';
+import { MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
 
@@ -18,6 +18,7 @@ import { useSpaceStore } from '../store/useSpaceStore';
 import { getTodayISO } from '../tasks/date';
 import type { IndexedTask } from '../tasks/taskIndex';
 import { mapTaskIndexRow } from '../tasks/taskIndexView';
+import { setTaskNextAction } from '../tasks/taskIndexStore';
 import { buildPathCache } from '../vault/pathCache';
 
 export default function BacklogPage() {
@@ -55,6 +56,24 @@ export default function BacklogPage() {
         ),
       );
   }, [notesById, pathCache, tasksIndex, todayISO]);
+  const [groupMode, setGroupMode] = React.useState<'project' | 'area' | 'path' | 'none'>(
+    'project',
+  );
+  const labelLookup = React.useMemo(
+    () => new Map(nodes.map((node) => [node.id, node.title || node.id])),
+    [nodes],
+  );
+  const agedCutoffMs = React.useMemo(
+    () => Date.now() - 14 * 24 * 60 * 60 * 1000,
+    [],
+  );
+  const agedCount = React.useMemo(
+    () =>
+      tasks.filter(
+        (task) => typeof task.createdAt === 'number' && task.createdAt < agedCutoffMs,
+      ).length,
+    [agedCutoffMs, tasks],
+  );
 
   const handleToggle = async (task: IndexedTask, checked: boolean) => {
     try {
@@ -92,6 +111,15 @@ export default function BacklogPage() {
     }
   };
 
+  const handleUpdateNextAction = async (task: IndexedTask, next: boolean) => {
+    try {
+      await setTaskNextAction(task.noteId, task.blockId, next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar next action: ${message}`);
+    }
+  };
+
   const handleOpenNote = (noteId: string, blockId: string) => {
     navigate(`/item/${noteId}`, { state: { highlightBlockId: blockId } });
   };
@@ -103,13 +131,31 @@ export default function BacklogPage() {
           Backlog
         </Typography>
         <Typography color="text.secondary">
-          {tasks.length} tarefas sem agendamento.
+          {tasks.length} tarefas sem agendamento
+          {agedCount > 0 ? ` • ${agedCount} envelhecidas` : ''}.
         </Typography>
+      </Stack>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          select
+          label="Agrupar"
+          value={groupMode}
+          onChange={(event) =>
+            setGroupMode(event.target.value as 'project' | 'area' | 'path' | 'none')
+          }
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="project">Por projeto</MenuItem>
+          <MenuItem value="area">Por area</MenuItem>
+          <MenuItem value="path">Por pasta</MenuItem>
+          <MenuItem value="none">Sem grupo</MenuItem>
+        </TextField>
       </Stack>
 
       <TaskGroupedList
         tasks={tasks}
-        groupMode="path"
+        groupMode={groupMode}
         storageKey="backlog"
         emptyMessage="Nenhuma tarefa no backlog."
         onToggle={handleToggle}
@@ -117,6 +163,11 @@ export default function BacklogPage() {
         onUpdateDue={handleUpdateDue}
         onSnooze={handleSnooze}
         onClearSnooze={handleClearSnooze}
+        onUpdateNextAction={handleUpdateNextAction}
+        groupLabelLookup={labelLookup}
+        emptyGroupLabel={groupMode === 'area' ? 'Sem area' : 'Sem projeto'}
+        showAged
+        agedCutoffMs={agedCutoffMs}
       />
     </Stack>
   );

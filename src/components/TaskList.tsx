@@ -38,6 +38,8 @@ type TaskListProps = {
   onSnooze?: (task: IndexedTask, snoozedUntil: string | null) => void;
   onClearSnooze?: (task: IndexedTask) => void;
   showMetaControls?: boolean;
+  showAged?: boolean;
+  agedCutoffMs?: number;
   selectedTaskId?: string;
   onSelectTask?: (task: IndexedTask) => void;
   onDragStartTask?: (task: IndexedTask, event: React.DragEvent<HTMLLIElement>) => void;
@@ -74,6 +76,8 @@ export default function TaskList({
   onSnooze,
   onClearSnooze,
   showMetaControls = false,
+  showAged = false,
+  agedCutoffMs,
   selectedTaskId,
   onSelectTask,
   onDragStartTask,
@@ -83,6 +87,8 @@ export default function TaskList({
   const [snoozeDialogOpen, setSnoozeDialogOpen] = React.useState(false);
   const [snoozeDate, setSnoozeDate] = React.useState('');
   const [listHeight, setListHeight] = React.useState(getListHeight);
+  const resolvedAgedCutoffMs =
+    agedCutoffMs ?? Date.now() - 14 * 24 * 60 * 60 * 1000;
 
   React.useEffect(() => {
     const handleResize = () => setListHeight(getListHeight());
@@ -144,17 +150,24 @@ export default function TaskList({
   const shouldVirtualize = tasks.length > VIRTUAL_THRESHOLD;
   const itemHeight = showMetaControls ? 200 : 140;
 
-  const renderTaskItem = (task: IndexedTask) => (
-    <ListItem
-      key={`${task.noteId}:${task.blockId}`}
-      divider
-      alignItems="flex-start"
-      selected={selectedTaskId === `${task.noteId}:${task.blockId}`}
-      sx={{ alignItems: 'flex-start' }}
-      onClick={() => onSelectTask?.(task)}
-      draggable={Boolean(onDragStartTask)}
-      onDragStart={(event) => onDragStartTask?.(task, event)}
-    >
+  const renderTaskItem = (task: IndexedTask) => {
+    const isAged =
+      showAged &&
+      typeof task.createdAt === 'number' &&
+      task.createdAt < resolvedAgedCutoffMs &&
+      !task.checked;
+
+    return (
+      <ListItem
+        key={`${task.noteId}:${task.blockId}`}
+        divider
+        alignItems="flex-start"
+        selected={selectedTaskId === `${task.noteId}:${task.blockId}`}
+        sx={{ alignItems: 'flex-start' }}
+        onClick={() => onSelectTask?.(task)}
+        draggable={Boolean(onDragStartTask)}
+        onDragStart={(event) => onDragStartTask?.(task, event)}
+      >
         <Checkbox
           checked={task.checked}
           onChange={(event) => onToggle(task, event.target.checked)}
@@ -195,6 +208,9 @@ export default function TaskList({
             )}
             {!showMetaControls && task.recurrence && (
               <Chip size="small" label={task.recurrence} variant="outlined" />
+            )}
+            {isAged && (
+              <Chip size="small" label="Envelhecida" color="warning" variant="outlined" />
             )}
             {task.snoozedUntil && (
               <Chip
@@ -291,8 +307,9 @@ export default function TaskList({
             )}
           </Stack>
         </Stack>
-    </ListItem>
-  );
+      </ListItem>
+    );
+  };
 
   const renderTask = (task: IndexedTask, style?: React.CSSProperties) => {
     if (!style) {

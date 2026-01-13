@@ -142,11 +142,7 @@ export const rebuildTaskIndexResumable = async (options?: RebuildOptions) => {
     cursor: checkpointValid ? checkpoint : undefined,
   });
 
-  const shouldClear = buildMode !== 'repair' && startIndex === 0;
-  if (shouldClear) {
-    await db.tasks_index.clear();
-  }
-  if (buildMode === 'repair' && startIndex === 0) {
+  if (startIndex === 0) {
     if (noteIds.size === 0) {
       await db.tasks_index.clear();
     } else {
@@ -169,13 +165,17 @@ export const rebuildTaskIndexResumable = async (options?: RebuildOptions) => {
 
       await db.transaction('rw', db.tasks_index, async () => {
         const batchNoteIds = batch.map((note) => note.id);
+        const existing =
+          batchNoteIds.length > 0
+            ? await db.tasks_index.where('noteId').anyOf(batchNoteIds).toArray()
+            : [];
         if (batchNoteIds.length > 0) {
           await db.tasks_index.where('noteId').anyOf(batchNoteIds).delete();
         }
         const rows = batch.flatMap((note) =>
           buildTaskIndexRows(note, now, DEFAULT_TASK_USER_ID, {
             projectId: resolveProjectIdFromCache(note, nodesById, schemasById),
-          }),
+          }, existing),
         );
         if (rows.length > 0) {
           await db.tasks_index.bulkPut(rows);

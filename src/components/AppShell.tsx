@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, SpeedDial, SpeedDialAction, SpeedDialIcon, Toolbar } from '@mui/material';
-import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { useTheme } from '@mui/material/styles';
 import { Outlet, useMatch, useNavigate } from 'react-router-dom';
@@ -17,6 +16,7 @@ import { useSpaceStore } from '../store/useSpaceStore';
 import { useTaskSelection } from '../store/useTaskSelection';
 import { executeCommand } from '../command/execute';
 import { useNotifier } from './Notifier';
+import { createInboxItem } from '../data/inbox';
 import { appendNoteBlock, createNote, getByTitleExact, setLocalChangeHandler } from '../data/repo';
 import { useItem } from '../data/hooks';
 import type { Block, NodeType } from '../data/types';
@@ -291,7 +291,7 @@ export default function AppShell() {
   );
 
   const handleCapture = React.useCallback(
-    async (payload: { text: string; mode: 'quick' | 'daily' }) => {
+    async (payload: { text: string; logDaily: boolean }) => {
       const now = new Date();
       const block: Block = {
         id: uuidv4(),
@@ -300,11 +300,15 @@ export default function AppShell() {
         createdAt: Date.now(),
       };
       try {
-        if (payload.mode === 'quick') {
-          const title = `Captura - ${format(now, 'yyyy-MM-dd HH:mm')}`;
-          const note = await createNote({ title, content: [block] });
-          navigate(`/item/${note.id}`, { state: { focusEditor: true } });
-        } else {
+        await createInboxItem(payload.text, space);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notifier.error(`Erro ao enviar para inbox: ${message}`);
+        return;
+      }
+
+      if (payload.logDaily) {
+        try {
           const title = `Capturas - ${getTodayISO()}`;
           const existing = await getByTitleExact(title);
           if (existing && existing.nodeType === 'note') {
@@ -314,15 +318,20 @@ export default function AppShell() {
             const note = await createNote({ title, content: [block] });
             navigate(`/item/${note.id}`, { state: { focusEditor: true } });
           }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          notifier.error(`Inbox salvo, mas falhou o diario: ${message}`);
+          setCaptureOpen(false);
+          return;
         }
-        notifier.success('Captura salva');
-        setCaptureOpen(false);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        notifier.error(`Erro ao capturar: ${message}`);
       }
+
+      notifier.success(
+        payload.logDaily ? 'Enviado para inbox e diario' : 'Enviado para inbox',
+      );
+      setCaptureOpen(false);
     },
-    [navigate, notifier],
+    [navigate, notifier, space],
   );
 
   return (

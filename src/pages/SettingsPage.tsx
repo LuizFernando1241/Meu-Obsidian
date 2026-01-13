@@ -49,6 +49,7 @@ import type { SyncSettings } from '../sync/types';
 import type { PropertySchema } from '../data/types';
 import type { IndexedTask } from '../tasks/taskIndex';
 import { getTodayISO } from '../tasks/date';
+import { rebuildTaskIndexResumable } from '../tasks/taskIndexRebuild';
 
 type ImportMode = 'replace' | 'merge';
 type FileSummary = {
@@ -106,6 +107,8 @@ export default function SettingsPage() {
   const [resetBusy, setResetBusy] = React.useState(false);
   const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
   const [confirmResetDownloadOpen, setConfirmResetDownloadOpen] = React.useState(false);
+  const [confirmRebuildOpen, setConfirmRebuildOpen] = React.useState(false);
+  const [rebuildBusy, setRebuildBusy] = React.useState(false);
   const [syncBusy, setSyncBusy] = React.useState(false);
   const [syncSettings, setSyncSettings] = React.useState<SyncSettings>(
     readStoredSyncSettings,
@@ -149,6 +152,7 @@ export default function SettingsPage() {
           effectiveDue: scheduled || due,
           isSnoozed: Boolean(scheduled && scheduled > todayISO),
           doneAt: row.completedAt ?? null,
+          createdAt: row.createdAt,
           priority,
           status,
           recurrence: undefined,
@@ -590,6 +594,33 @@ export default function SettingsPage() {
     }
   };
 
+  const handleRebuildTaskIndex = async () => {
+    setRebuildBusy(true);
+    try {
+      let lastNotified = 0;
+      await rebuildTaskIndexResumable({
+        mode: 'rebuild',
+        onProgress: ({ processedCount, totalCount }) => {
+          if (totalCount === 0) {
+            return;
+          }
+          const progress = processedCount / totalCount;
+          if (progress - lastNotified >= 0.25 || progress >= 1) {
+            lastNotified = progress;
+            notifier.info(`Reconstruindo indice... ${Math.round(progress * 100)}%`);
+          }
+        },
+      });
+      notifier.success('Indice de tarefas reconstruido');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao reconstruir indice: ${message}`);
+    } finally {
+      setRebuildBusy(false);
+      setConfirmRebuildOpen(false);
+    }
+  };
+
   return (
     <Stack spacing={3}>
       <Typography variant="h4" component="h1">
@@ -625,6 +656,13 @@ export default function SettingsPage() {
                 Cofre grande: sincronizacao e buscas podem ficar mais lentas.
               </Alert>
             )}
+            <Button
+              variant="outlined"
+              onClick={() => setConfirmRebuildOpen(true)}
+              disabled={rebuildBusy}
+            >
+              Reconstruir indice de tarefas
+            </Button>
           </Stack>
         </CardContent>
       </Card>
@@ -1074,6 +1112,15 @@ export default function SettingsPage() {
         confirmColor="error"
         onConfirm={handleConfirmDeleteSchema}
         onClose={() => setSchemaDeleteTarget(null)}
+      />
+      <ConfirmDialog
+        open={confirmRebuildOpen}
+        title="Reconstruir indice de tarefas?"
+        description="Isso pode levar alguns minutos em cofres grandes."
+        confirmLabel="Reconstruir"
+        onConfirm={handleRebuildTaskIndex}
+        onClose={() => setConfirmRebuildOpen(false)}
+        isLoading={rebuildBusy}
       />
     </Stack>
   );

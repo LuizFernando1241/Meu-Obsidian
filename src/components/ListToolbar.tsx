@@ -27,6 +27,7 @@ export default function ListToolbar({
       >
         <TextField
           size="small"
+          label="Buscar"
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Buscar..."

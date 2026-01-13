@@ -1,46 +1,44 @@
 import React from 'react';
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
   FormControlLabel,
-  Radio,
-  RadioGroup,
   Stack,
   TextField,
   Typography,
 } from '@mui/material';
 import { useIsMobile } from '../../app/useIsMobile';
 
-type CaptureMode = 'quick' | 'daily';
-
 type CaptureDialogProps = {
   open: boolean;
   onClose: () => void;
-  onCapture: (payload: { text: string; mode: CaptureMode }) => void | Promise<void>;
+  onCapture: (payload: { text: string; logDaily: boolean }) => void | Promise<void>;
 };
 
 export default function CaptureDialog({ open, onClose, onCapture }: CaptureDialogProps) {
   const isMobile = useIsMobile();
-  const [mode, setMode] = React.useState<CaptureMode>('quick');
+  const [logDaily, setLogDaily] = React.useState(false);
   const [text, setText] = React.useState('');
+  const trimmed = text.trim();
+  const canSubmit = trimmed.length > 0;
 
   React.useEffect(() => {
     if (open) {
-      setMode('quick');
+      setLogDaily(false);
       setText('');
     }
   }, [open]);
 
   const handleConfirm = () => {
-    const trimmed = text.trim();
-    if (!trimmed) {
+    if (!canSubmit) {
       return;
     }
-    onCapture({ text: trimmed, mode });
+    onCapture({ text: trimmed, logDaily });
   };
 
   return (
@@ -57,26 +55,25 @@ export default function CaptureDialog({ open, onClose, onCapture }: CaptureDialo
             minRows={3}
             fullWidth
             autoFocus
+            error={text.length > 0 && !canSubmit}
+            helperText={canSubmit ? undefined : 'Digite algo para capturar.'}
           />
           <FormControl>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
               Destino
             </Typography>
-            <RadioGroup
-              value={mode}
-              onChange={(event) => setMode(event.target.value as CaptureMode)}
-            >
-              <FormControlLabel
-                value="quick"
-                control={<Radio />}
-                label="Criar nota rapida na raiz"
-              />
-              <FormControlLabel
-                value="daily"
-                control={<Radio />}
-                label="Adicionar na nota diaria (Capturas - YYYY-MM-DD)"
-              />
-            </RadioGroup>
+            <Typography variant="body2" color="text.secondary">
+              Inbox (padrao)
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={logDaily}
+                  onChange={(event) => setLogDaily(event.target.checked)}
+                />
+              }
+              label="Adicionar tambem ao diario (Capturas - YYYY-MM-DD)"
+            />
           </FormControl>
         </Stack>
       </DialogContent>
@@ -86,7 +83,12 @@ export default function CaptureDialog({ open, onClose, onCapture }: CaptureDialo
         <Button onClick={onClose} sx={{ width: isMobile ? '100%' : 'auto' }}>
           Cancelar
         </Button>
-        <Button variant="contained" onClick={handleConfirm} sx={{ width: isMobile ? '100%' : 'auto' }}>
+        <Button
+          variant="contained"
+          onClick={handleConfirm}
+          disabled={!canSubmit}
+          sx={{ width: isMobile ? '100%' : 'auto' }}
+        >
           Capturar
         </Button>
       </DialogActions>

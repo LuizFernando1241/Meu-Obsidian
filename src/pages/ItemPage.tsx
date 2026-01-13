@@ -113,40 +113,19 @@ const computeHeadingState = (blocks: Block[]) => {
   return { hiddenIds, headingHasChildren };
 };
 
-const normalizeTaskMeta = (
-  value: Block['meta'] | undefined,
-  legacyPriority?: number | null,
-): Block['meta'] | undefined => {
+const normalizeTaskMeta = (value: Block['meta'] | undefined): Block['meta'] | undefined => {
   const meta = value && typeof value === 'object' ? value : undefined;
-  const rawPriority = meta?.priority;
-  const rawStatus = meta?.status;
   const rawRecurrence = meta?.recurrence;
-  const rawNextAction = meta?.isNextAction;
-  const priority =
-    rawPriority === 'P1' || rawPriority === 'P2' || rawPriority === 'P3'
-      ? rawPriority
-      : legacyPriority === 1
-        ? 'P1'
-        : legacyPriority === 2
-          ? 'P2'
-          : legacyPriority === 3
-            ? 'P3'
-            : undefined;
-  const status =
-    rawStatus === 'open' || rawStatus === 'doing' || rawStatus === 'waiting'
-      ? rawStatus
-      : undefined;
   const recurrence =
     rawRecurrence === 'weekly' || rawRecurrence === 'monthly'
       ? rawRecurrence
       : undefined;
-  const isNextAction = typeof rawNextAction === 'boolean' ? rawNextAction : undefined;
 
-  if (!priority && !status && !recurrence && isNextAction === undefined) {
+  if (!recurrence) {
     return undefined;
   }
 
-  return { priority, status, recurrence, isNextAction };
+  return { recurrence };
 };
 
 const makeBlock = (text = ''): Block => ({
@@ -213,7 +192,7 @@ const normalizeBlock = (block: Block): Block => {
 
   if (type === 'checklist') {
     normalized.checked = normalized.checked ?? false;
-    normalized.meta = normalizeTaskMeta(normalized.meta, normalized.priority ?? null);
+    normalized.meta = normalizeTaskMeta(normalized.meta);
     normalized.snoozedUntil = normalized.snoozedUntil ?? null;
     normalized.originalDue = normalized.originalDue ?? null;
   } else {
@@ -253,13 +232,10 @@ const areBlocksEqual = (left: Block[], right: Block[]) => {
         (a.language ?? '') !== (b.language ?? '') ||
         (a.taskId ?? '') !== (b.taskId ?? '') ||
         (a.collapsed ?? false) !== (b.collapsed ?? false) ||
-        (a.meta?.priority ?? '') !== (b.meta?.priority ?? '') ||
-        (a.meta?.status ?? '') !== (b.meta?.status ?? '') ||
-        (a.meta?.recurrence ?? '') !== (b.meta?.recurrence ?? '') ||
-        (a.meta?.isNextAction ?? false) !== (b.meta?.isNextAction ?? false)
-      ) {
-        return false;
-      }
+          (a.meta?.recurrence ?? '') !== (b.meta?.recurrence ?? '')
+        ) {
+          return false;
+        }
   }
   return true;
 };

@@ -18,6 +18,7 @@ import { useSpaceStore } from '../store/useSpaceStore';
 import { getTodayISO } from '../tasks/date';
 import type { IndexedTask } from '../tasks/taskIndex';
 import { mapTaskIndexRow } from '../tasks/taskIndexView';
+import { setTaskNextAction } from '../tasks/taskIndexStore';
 import { buildPathCache } from '../vault/pathCache';
 
 const PRIORITY_ORDER: Record<string, number> = {
@@ -119,6 +120,15 @@ export default function OverdueViewPage() {
     }
   };
 
+  const handleUpdateNextAction = async (task: IndexedTask, next: boolean) => {
+    try {
+      await setTaskNextAction(task.noteId, task.blockId, next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar next action: ${message}`);
+    }
+  };
+
   const handleOpenNote = (noteId: string, blockId: string) => {
     navigate(`/item/${noteId}`, { state: { highlightBlockId: blockId } });
   };
@@ -144,6 +154,7 @@ export default function OverdueViewPage() {
         onUpdateDue={handleUpdateDue}
         onSnooze={handleSnooze}
         onClearSnooze={handleClearSnooze}
+        onUpdateNextAction={handleUpdateNextAction}
       />
     </Stack>
   );

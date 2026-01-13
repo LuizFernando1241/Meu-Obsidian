@@ -27,7 +27,6 @@ import { useLiveQuery } from 'dexie-react-hooks';
 
 import LocalGraph from './graph/LocalGraph';
 import PropertiesEditor from './PropertiesEditor';
-import TaskDetailsPanel from '../features/tasks/TaskDetailsPanel';
 import {
   findWikilinkSnippets,
   isExternalLinkTarget,
@@ -43,7 +42,7 @@ import { blocksToMarkdown, parseMarkdownToBlocks } from '../editor/markdownToBlo
 import { deleteNode, resolveTitleToId, updateItemProps } from '../data/repo';
 import type { Block, Node, NodeType } from '../data/types';
 import ConfirmDialog from './ConfirmDialog';
-import { useTaskSelection } from '../store/useTaskSelection';
+import { useNotifier } from './Notifier';
 
 type RightContextPanelProps = {
   isMobile: boolean;
@@ -66,10 +65,7 @@ export default function RightContextPanel({
   onClose,
   width,
 }: RightContextPanelProps) {
-  const { selectedTask, clearSelection } = useTaskSelection((state) => ({
-    selectedTask: state.selectedTask,
-    clearSelection: state.clearSelection,
-  }));
+  const notifier = useNotifier();
   const match = useMatch('/item/:id');
   const navigate = useNavigate();
   const itemId = match?.params.id ?? '';
@@ -221,7 +217,8 @@ export default function RightContextPanel({
     try {
       await updateItemProps(itemId, { favorite: !item.favorite });
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar favorito: ${message}`);
     }
   };
 
@@ -243,7 +240,8 @@ export default function RightContextPanel({
       await updateItemProps(itemId, { tags: nextTags });
       setTagInput('');
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao adicionar tag: ${message}`);
     }
   };
 
@@ -256,7 +254,8 @@ export default function RightContextPanel({
     try {
       await updateItemProps(itemId, { tags: nextTags });
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao remover tag: ${message}`);
     }
   };
 
@@ -267,7 +266,8 @@ export default function RightContextPanel({
     try {
       await updateItemProps(itemId, { props: nextProps });
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar propriedades: ${message}`);
     }
   };
 
@@ -288,7 +288,8 @@ export default function RightContextPanel({
     try {
       await updateItemProps(itemId, { props: nextProps });
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao atualizar schema da pasta: ${message}`);
     }
   };
 
@@ -326,7 +327,8 @@ export default function RightContextPanel({
       await updateItemProps(itemId, { props: nextProps });
       setTemplateDialogOpen(false);
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao salvar template: ${message}`);
     }
   };
 
@@ -347,7 +349,8 @@ export default function RightContextPanel({
       onClose();
       navigate(TYPE_ROUTES[item.nodeType]);
     } catch (error) {
-      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      notifier.error(`Erro ao excluir item: ${message}`);
     }
   };
 
@@ -384,26 +387,6 @@ export default function RightContextPanel({
         borderTopRightRadius: 16,
       }
     : { width };
-
-  if (selectedTask) {
-    return (
-      <Drawer
-        anchor="right"
-        open={open}
-        onClose={onClose}
-        variant={isMobile ? 'temporary' : 'persistent'}
-        sx={{
-          flexShrink: 0,
-          '& .MuiDrawer-paper': { width, boxSizing: 'border-box' },
-        }}
-      >
-        <Toolbar />
-        <Box sx={{ px: 2, py: 2 }}>
-          <TaskDetailsPanel task={selectedTask} onClear={clearSelection} />
-        </Box>
-      </Drawer>
-    );
-  }
 
   return (
     <Drawer
@@ -505,7 +488,7 @@ export default function RightContextPanel({
               </>
             )}
             <Stack spacing={1}>
-              <Typography variant="subtitle2">Properties</Typography>
+              <Typography variant="subtitle2">Propriedades</Typography>
               <PropertiesEditor
                 node={item}
                 onChange={handlePropsChange}
